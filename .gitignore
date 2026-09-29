@@ -32,3 +32,9 @@ pnpm-debug.log*
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+
+# Datos mock locales (JSON store + uploads)
+.data/
+
+# Reportes locales de gstack
+.gstack/
