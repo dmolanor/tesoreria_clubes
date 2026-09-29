@@ -11,7 +11,9 @@
     "test": "vitest run",
     "seed": "tsx --tsconfig tsconfig.json scripts/seed.ts",
     "share": "bash scripts/share.sh prod",
-    "share:dev": "bash scripts/share.sh dev"
+    "share:dev": "bash scripts/share.sh dev",
+    "seed:sql": "tsx --tsconfig tsconfig.json scripts/generate-seed-sql.ts",
+    "seed:supabase": "npm run seed:sql && tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seed-supabase.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
@@ -32,10 +34,12 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "pg": "^8.23.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",

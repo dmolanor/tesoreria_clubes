@@ -1,0 +1,175 @@
+// npm run seed:sql → escribe supabase/seed.sql con los datos demo en el esquema de Supabase.
+// Reutiliza buildSeed() (el mismo historial jul–sep 2026 del prototipo JSON) y lo mapea:
+//   usuarios + roles_usuario → miembros; pagos_aplicados + saldo_a_favor → aplicaciones.
+// Se aplica con `supabase db reset` o ejecutándolo como postgres (MCP execute_sql).
+
+import { promises as fs } from "node:fs"
+import path from "node:path"
+import { buildSeed } from "../lib/data/seed"
+import { diaLocal } from "../lib/format"
+import type { Db, EventoCobro } from "../lib/data/types"
+
+type Val = string | number | boolean | null | undefined | string[] | Record<string, unknown>
+
+function lit(v: Val): string {
+  if (v === null || v === undefined) return "null"
+  if (typeof v === "number") return String(v)
+  if (typeof v === "boolean") return v ? "true" : "false"
+  if (Array.isArray(v)) return `'{${v.map((x) => `"${x.replace(/"/g, '\\"')}"`).join(",")}}'`
+  if (typeof v === "object") return `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb`
+  return `'${v.replace(/'/g, "''")}'`
+}
+
+// Lotes de 50 filas: sentencias legibles y fáciles de partir en bloques.
+function insert(table: string, cols: string[], rows: Val[][]): string {
+  let out = ""
+  for (let i = 0; i < rows.length; i += 50) {
+    const values = rows.slice(i, i + 50).map((r) => `  (${r.map(lit).join(", ")})`).join(",\n")
+    out += `insert into public.${table} (${cols.join(", ")}) values\n${values};\n\n`
+  }
+  return out
+}
+
+function tipoCobro(e: EventoCobro): string {
+  const n = e.nombre.toLowerCase()
+  if (n.startsWith("mensualidad")) return "mensualidad"
+  if (n.startsWith("afiliaci")) return "afiliacion"
+  if (n.includes("torneo") || n.includes("team fee")) return "torneo"
+  if (n.startsWith("uniforme")) return "uniforme"
+  return "otro"
+}
+
+export function seedSql(db: Db): string {
+  const club = db.clubes[0]
+  const byTime = <T extends { t: string }>(xs: T[]) => xs.sort((a, b) => a.t.localeCompare(b.t))
+  const rolesDe = (id: string) => db.roles_usuario.filter((r) => r.usuario_id === id && r.activo).map((r) => r.rol)
+  const adminId = db.usuarios.find((u) => rolesDe(u.id).includes("administrativo"))!.id
+
+  // Aplicaciones: las de comprobantes (propuesta/manual) + las de saldo a favor consumido, en orden temporal.
+  const comp = new Map(db.comprobantes.map((c) => [c.id, c]))
+  const obl = new Map(db.obligaciones.map((o) => [o.id, o]))
+  const huerfanos = db.saldo_a_favor.filter((s) => s.origen_comprobante_id === null)
+  if (huerfanos.length) throw new Error(`Saldo a favor sin comprobante de origen (${huerfanos.length}); el esquema no lo soporta`)
+  const aplicaciones = byTime([
+    ...db.pagos_aplicados
+      .filter((p) => p.obligacion_id)
+      .map((p) => ({
+        t: comp.get(p.comprobante_id)!.revisado_en!,
+        row: [p.id, club.id, p.comprobante_id, p.obligacion_id, p.monto_aplicado, p.regla_aplicada ? "propuesta" : "manual", p.regla_aplicada, comp.get(p.comprobante_id)!.revisado_por, comp.get(p.comprobante_id)!.revisado_en] as Val[],
+      })),
+    ...db.saldo_a_favor
+      .filter((s) => s.consumido && s.consumido_en_obligacion_id)
+      .map((s) => ({
+        t: obl.get(s.consumido_en_obligacion_id!)!.created_at,
+        row: [s.id, club.id, s.origen_comprobante_id, s.consumido_en_obligacion_id, s.monto, "saldo_a_favor", null, adminId, obl.get(s.consumido_en_obligacion_id!)!.created_at] as Val[],
+      })),
+  ])
+
+  const objetivo: Record<string, string> = { usuario: "miembro" }
+
+  let sql = `-- Generado por scripts/generate-seed-sql.ts — no editar a mano.
+-- Datos demo: Raza Ultimate, ~48 jugadores, historial jul–sep 2026.
+begin;
+select set_config('app.seed', 'on', true);  -- la bitácora se copia del seed, sin duplicar por triggers
+
+truncate public.bitacora, public.aplicaciones, public.conciliaciones, public.comprobantes,
+  public.obligaciones, public.reglas_conciliacion, public.eventos_cobro, public.miembros, public.clubes
+  restart identity cascade;
+
+`
+  sql += insert("clubes", ["id", "nombre", "categorias", "created_at"], [[club.id, club.nombre, ["Élite", "Junior"], club.created_at]])
+  sql += insert(
+    "miembros",
+    ["id", "club_id", "nombre", "correo", "categoria", "estado", "roles", "created_at"],
+    db.usuarios.map((u) => [u.id, u.club_id, u.nombre, u.correo, u.categoria, u.estado, rolesDe(u.id), u.created_at]),
+  )
+  sql += insert(
+    "reglas_conciliacion",
+    ["id", "club_id", "nombre", "tipo", "parametros", "prioridad", "activa", "created_at"],
+    db.reglas_conciliacion.map((r) => [r.id, r.club_id, r.nombre, r.tipo, r.condicion, r.prioridad, r.activa, r.created_at]),
+  )
+  sql += insert(
+    "eventos_cobro",
+    ["id", "club_id", "nombre", "tipo", "monto", "fecha_limite", "alcance", "categoria", "estado", "cancelado_en", "creado_por", "created_at"],
+    db.eventos_cobro.map((e) => [
+      e.id, e.club_id, e.nombre, tipoCobro(e), e.monto, e.fecha_limite, e.alcance,
+      e.alcance === "grupo" ? e.alcance_valor : null, e.estado, e.estado === "cancelado" ? e.fecha_creacion : null, adminId, e.fecha_creacion,
+    ]),
+  )
+  sql += insert(
+    "obligaciones",
+    ["id", "club_id", "evento_id", "miembro_id", "monto", "created_at"],
+    db.obligaciones.map((o) => [o.id, club.id, o.evento_cobro_id, o.usuario_id, o.monto, o.created_at]),
+  )
+  sql += insert(
+    "comprobantes",
+    ["id", "club_id", "miembro_id", "monto", "fecha_pago", "canal", "estado", "motivo_rechazo", "revisado_por", "revisado_en", "created_at"],
+    db.comprobantes.map((c) => [
+      c.id, club.id, c.usuario_id, c.monto_total, diaLocal(c.fecha_carga), c.canal, c.estado, c.motivo_rechazo, c.revisado_por, c.revisado_en, c.fecha_carga,
+    ]),
+  )
+  sql += insert(
+    "aplicaciones",
+    ["id", "club_id", "comprobante_id", "obligacion_id", "monto", "origen", "regla_id", "creado_por", "created_at"],
+    aplicaciones.map((a) => a.row),
+  )
+  sql += insert(
+    "conciliaciones",
+    ["id", "club_id", "mes", "saldo_inicial", "saldo_final", "notas", "creado_por", "created_at"],
+    db.conciliaciones.map((c) => [c.id, c.club_id, c.mes, c.saldo_inicial, c.saldo_final, c.notas, c.creado_por, c.created_at]),
+  )
+  sql += insert(
+    "bitacora",
+    ["club_id", "tipo", "actor_id", "objetivo_tipo", "objetivo_id", "descripcion", "metadata", "created_at"],
+    [...db.bitacora]
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map((b) => [b.club_id, b.tipo, b.actor_id, objetivo[b.objetivo_tipo] ?? b.objetivo_tipo, b.objetivo_id, b.descripcion, b.metadata, b.created_at]),
+  )
+  sql += "commit;\n"
+  return sql
+}
+
+/**
+ * Parte el seed en bloques autocontenidos (cada uno en su transacción) para cargarlo por
+ * canales con límite de tamaño, como `execute_sql` del MCP. El orden de los bloques importa.
+ */
+function bloques(sql: string, maxBytes: number): string[] {
+  // Los ids demo comparten prefijo: se abrevian y una función temporal los reconstruye.
+  const U = "create or replace function pg_temp.u(x text) returns uuid language sql immutable as $$ select ('00000000-0000-4000-8000-' || lpad(x, 12, '0'))::uuid $$;"
+  const cuerpo = sql
+    .slice(sql.indexOf("truncate"), sql.lastIndexOf("commit;"))
+    .replace(/'00000000-0000-4000-8000-0*([0-9a-f]+)'/g, "pg_temp.u('$1')")
+    .replace(/\.000Z'/g, "Z'")
+  const sentencias = cuerpo.split(/;\n\n/).map((s) => s.trim()).filter(Boolean)
+  const out: string[] = []
+  let actual: string[] = []
+  const cierra = () => {
+    if (actual.length) out.push(`begin;\nselect set_config('app.seed', 'on', true);\n${U}\n${actual.join(";\n")};\ncommit;\n`)
+    actual = []
+  }
+  for (const s of sentencias) {
+    if (actual.join("").length + s.length > maxBytes) cierra()
+    actual.push(s)
+  }
+  cierra()
+  return out
+}
+
+async function main() {
+  const sql = seedSql(buildSeed())
+  const out = path.join(process.cwd(), "supabase", "seed.sql")
+  await fs.writeFile(out, sql)
+  console.log(`Escrito ${path.relative(process.cwd(), out)}`)
+  const dir = process.argv[2]
+  if (dir) {
+    await fs.mkdir(dir, { recursive: true })
+    const partes = bloques(sql, 45_000)
+    await Promise.all(partes.map((p, i) => fs.writeFile(path.join(dir, `seed-${String(i + 1).padStart(2, "0")}.sql`), p)))
+    console.log(`${partes.length} bloques en ${dir}`)
+  }
+}
+
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})
