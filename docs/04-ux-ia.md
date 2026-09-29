@@ -4,7 +4,7 @@ Principio rector del club: **pocos clics, sin sobrecarga de menú**. No es minim
 
 ## Selector de rol (multi-rol)
 
-Cuando una persona tiene más de un rol activo (`roles_usuario`), un selector tipo pestañas/segmented control aparece junto al nombre en la barra superior (ej. `[ Jugador | Tesorero ]`). Cambiar de pestaña cambia el contexto completo (navegación + pantalla de inicio) del rol seleccionado — nunca se muestran ambos menús fusionados ni duplicados. Por defecto abre en el último rol usado.
+Cuando una persona tiene más de un rol activo (`miembros.roles`), un selector tipo pestañas/segmented control aparece junto al nombre en la barra superior (ej. `[ Jugador | Tesorero ]`). Cambiar de pestaña cambia el contexto completo (navegación + pantalla de inicio) del rol seleccionado — nunca se muestran ambos menús fusionados ni duplicados. Por defecto abre en el último rol usado.
 
 ## Navegación por rol (máximo 3-4 ítems)
 

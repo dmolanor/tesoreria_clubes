@@ -22,9 +22,9 @@ Cuando se sube un comprobante (monto total, jugador):
 
 1. Se toman las **reglas activas del club**, ordenadas por `prioridad` ascendente.
 2. Se evalúan en orden, contra el monto **restante** del comprobante y las **obligaciones pendientes** del jugador (`obligaciones.estado in ('pendiente','parcial')`).
-3. La primera regla cuya `condicion` haga match consume del monto restante según su `accion`, y genera una o más filas de `pagos_aplicados` (con `regla_aplicada` para auditoría).
+3. La primera regla cuya `condicion` haga match consume del monto restante según su `accion`, y genera una o más filas de `aplicaciones` (con `regla_id` para auditoría).
 4. El monto restante (si queda) sigue evaluándose contra las siguientes reglas en orden.
-5. Si después de todas las reglas activas queda saldo sin aplicar, va a `saldo_a_favor` (comportamiento por defecto, no configurable — siempre hay un catch-all).
+5. Si después de todas las reglas activas queda saldo sin aplicar, queda como saldo a favor del jugador (derivado: monto aceptado − aplicado; comportamiento por defecto, no configurable — siempre hay un catch-all).
 6. El resultado completo es una **propuesta**: el tesorero la ve en la bandeja de comprobantes, puede editarla manualmente (mover montos entre obligaciones, como ya está en el wireframe), y solo al aceptar se escribe de forma definitiva.
 
 Esto es exactamente combinable en el sentido que pidió el club: "si pagan un monto que cuadra con un evento específico, va ahí independientemente de qué tan vieja sea otra deuda" es una regla de prioridad 1, y "lo que sobra va a lo más antiguo" es la regla de prioridad 2 — ambas pueden estar activas a la vez y el resto del monto fluye de una a la otra.

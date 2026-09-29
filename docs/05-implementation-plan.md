@@ -18,7 +18,7 @@ Fases pensadas para construirse en orden con Claude Code, cada una entregando al
 
 **Objetivo:** el club puede crear su estructura base sin depender de Excel.
 
-- Migraciones de todo el esquema de `02-data-model.md`, incluyendo `roles_usuario` desde el inicio (multi-rol es real desde el lanzamiento, no se agrega después).
+- Migraciones de todo el esquema de `02-data-model.md`, incluyendo multi-rol (`miembros.roles`) desde el inicio (multi-rol es real desde el lanzamiento, no se agrega después).
 - Políticas RLS base (por `club_id`, por rol activo).
 - CRUD de `eventos_cobro` (crear, editar, cancelar con reasignación de pagos ya hechos).
 - Carga masiva de jugadores por Excel (nombre + correo → invitación por correo a los nuevos, omite existentes).

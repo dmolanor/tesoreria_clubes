@@ -32,7 +32,7 @@ Estos vinieron de conversaciones directas con los dos fundadores del proyecto �
 - **Tesorero**: revisa y aprueba/rechaza comprobantes, configura las reglas de conciliación (solo el tesorero — el admin no edita esta configuración), hace la conciliación bancaria mensual, ve progreso por evento y por jugador.
 - **Jugador**: ve su estado de cuenta, sube comprobantes.
 
-Un mismo usuario puede tener más de uno de estos roles simultáneamente (ver `docs/02-data-model.md`, tabla `roles_usuario`).
+Un mismo usuario puede tener más de uno de estos roles simultáneamente (ver `docs/02-data-model.md`: `miembros.roles` es un arreglo).
 
 ## Fuera de alcance para v1 (web)
 

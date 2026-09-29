@@ -1,160 +1,71 @@
 # Modelo de datos
 
-Postgres vía Supabase. Todo aislado por `club_id` para soportar multi-club a futuro sin mezclar datos. Row Level Security (RLS) es el mecanismo principal de autorización — no confiar en filtros solo del lado de la aplicación.
+Postgres 17 en Supabase (proyecto "Tesoreria Clubes Ultimate"). La fuente de verdad son las migraciones en `supabase/migrations/`; este documento explica el porqué. Tipos TS generados en `lib/data/database.types.ts` (regenerar tras cada migración).
 
-Este esquema extiende el diseño original del compañero en tres puntos, todos derivados de decisiones explícitas del club: **multi-rol por persona**, **reglas de conciliación configurables** (en vez de FIFO fijo) y una **bitácora unificada de eventos**.
+Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **Row Level Security es el mecanismo principal de autorización**, no los filtros de la aplicación.
+
+## Decisiones que moldean el esquema
+
+- **9 tablas, sin tablas "por si acaso".** Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
+- **`miembros` = persona dentro de un club** (reemplaza a `usuarios` + `roles_usuario` del diseño original). Los roles son un arreglo (`rol[]`): una persona puede ser jugadora y tesorera a la vez, que es un caso real desde el lanzamiento. El miembro existe *antes* de tener cuenta: se carga desde el Excel y `auth_user_id` se vincula solo, por correo, en su primer login con magic link. Una misma cuenta puede pertenecer a varios clubes (una fila por club).
+- **El saldo a favor se deriva, no se guarda.** `aplicaciones` registra qué parte de cada comprobante fue a qué obligación (reemplaza a `pagos_aplicados` + `saldo_a_favor`). El saldo a favor de un comprobante es su monto aceptado menos lo aplicado. Así no hay dos fuentes de verdad que sincronizar.
+- **En finanzas no se borra.** Una aplicación se *anula* (`anulada_en`, `anulada_motivo`). Cancelar un evento o prorratear anula aplicaciones, y el dinero vuelve solo al saldo a favor.
+- **`club_id` en todas las tablas + FKs compuestas** `(club_id, x_id) → padre(club_id, id)`: la base impide relacionar filas de clubes distintos aunque la app tenga un bug.
+- **Dinero en `numeric(14,2)`** (COP): las comisiones de pasarelas (Wompi) generan decimales. Las fechas de negocio son `date`, y "hoy" sale de `clubes.zona_horaria`.
+- **Enums para conjuntos cerrados** (roles, estados, tipos de regla, tipos de bitácora) y texto para lo que varía por club (categorías, en `clubes.categorias`).
 
 ## Tablas
 
-### `clubes`
-```
-id            uuid pk
-nombre        text
-created_at    timestamptz
-```
+| Tabla | Qué guarda | Claves / reglas |
+|---|---|---|
+| `clubes` | Club, `categorias text[]`, `zona_horaria`, `moneda` | — |
+| `miembros` | Persona en un club: `nombre`, `correo citext`, `telefono` (E.164, WhatsApp), `categoria`, `estado` (activo/lesionado/retirado), `roles rol[]`, `auth_user_id` | unique `(club_id, correo)`; al menos un rol; el club siempre conserva un administrador |
+| `eventos_cobro` | Cobro: `tipo` (mensualidad/afiliacion/torneo/uniforme/otro), `monto`, `fecha_limite`, `alcance` (todos/grupo/individual), `categoria`, `estado` | `categoria` solo si alcance = grupo; "individual" = las obligaciones mismas; un evento cancelado no se reactiva |
+| `obligaciones` | Deuda de un miembro en un evento: `monto`, `pagado` (lo mantiene un trigger), `estado` (columna generada: pendiente/parcial/pagado) | unique `(evento_id, miembro_id)`; `0 ≤ pagado ≤ monto` |
+| `comprobantes` | Pago reportado: `monto`, `fecha_pago` (fecha de la transferencia; la usa la conciliación), `archivo_path` (Storage), `canal` (manual/whatsapp/wompi), `origen_ref`, `extraccion` (OCR), `estado`, `motivo_rechazo`, `revisado_por/en` | unique `(club_id, canal, origen_ref)` = idempotencia de webhooks; rechazar exige motivo; no se re-revisa |
+| `aplicaciones` | Parte de un comprobante aplicada a una obligación: `monto`, `origen` (propuesta/manual/saldo_a_favor), `regla_id` (auditoría), `anulada_en/motivo` | mismo jugador y club; suma activa ≤ monto del comprobante; cada línea ≤ lo que se debe |
+| `reglas_conciliacion` | Motor configurable (ver `03-reconciliation-engine.md`): `tipo`, `parametros jsonb`, `prioridad`, `activa` | prioridad única (diferible, para reordenar); un solo `mas_antiguo_primero` por club, siempre activo y siempre de último |
+| `conciliaciones` | Cierre mensual: `mes`, `saldo_inicial/final`, `total_aceptado` (snapshot calculado), `diferencia` (generada), `notas` | unique `(club_id, mes)` |
+| `bitacora` | Eventos de negocio: `tipo` (enum cerrado de 9 valores), `actor_id`, `objetivo_tipo/id`, `descripcion`, `metadata` | append-only (un trigger bloquea update/delete, incluso con service role); índice `(club_id, created_at desc, id desc)` para paginar por cursor |
 
-### `usuarios`
-Identidad, sin rol embebido (el rol vive en `roles_usuario` — ver más abajo).
-```
-id            uuid pk  -- = auth.users.id de Supabase Auth
-club_id       uuid fk -> clubes.id
-nombre        text
-correo        text unique
-categoria     text   -- 'Élite' | 'Junior' | null (aplica a jugadores)
-estado        text   -- 'activo' | 'lesionado' | 'retirado'
-created_at    timestamptz
-```
+**Vistas** (`security_invoker`, respetan RLS): `estado_cuenta_miembros` (pendiente, vencido, próximo vencimiento, saldo a favor, estado al_dia/pendiente/mora) y `progreso_eventos` (pagadas/total, recaudado/total).
 
-### `roles_usuario`
-Una persona puede tener varios roles a la vez (ej. tesorero que también juega). Esta tabla existe *desde v1*, no es preparación para el futuro — hay un caso real hoy.
-```
-id            uuid pk
-usuario_id    uuid fk -> usuarios.id
-club_id       uuid fk -> clubes.id
-rol           text    -- 'administrativo' | 'tesorero' | 'jugador'
-activo        boolean default true
-created_at    timestamptz
+## Autorización
 
-unique (usuario_id, club_id, rol)
-```
-La UI resuelve esto con un selector de rol tipo pestañas cuando `count(roles activos) > 1` (ver `04-ux-ia.md`) — nunca duplicando menús completos por rol.
+- **Políticas por fila**, una por operación, siempre `to authenticated`. `anon` no tiene acceso a nada. Helpers `security definer` en el esquema `private` (no expuesto): `mis_miembros()` y `clubes_con_rol(rol[])`, envueltos en `(select …)` para que se evalúen una vez por consulta.
+- **Los roles se leen de `miembros.roles` en cada consulta, nunca del JWT**: quitarle un rol a alguien aplica de inmediato.
+- **Grants por columna**: el jugador inserta sus comprobantes pero no puede tocar `estado`; nadie escribe `obligaciones.pagado`, `total_aceptado` ni la bitácora por API.
+- **Triggers para lo que RLS no expresa**: `revisado_por` y `creado_por` los fija la base (no se pueden suplantar), validaciones de aplicaciones, FIFO siempre último, club nunca sin admin.
+- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia y **es el único que configura reglas**. El administrador crea y cancela eventos y gestiona jugadores, y lee reglas y conciliación. La bitácora la leen tesorería y administración.
+- **Storage:** bucket privado `comprobantes`, ruta `{club_id}/{miembro_id}/{archivo}`. Cada jugador sube y lee su carpeta; tesorería y administración leen la del club. Nadie edita ni borra archivos.
 
-### `eventos_cobro`
-```
-id              uuid pk
-club_id         uuid fk -> clubes.id
-nombre          text
-monto           numeric(12,2)
-fecha_limite    date
-alcance         text      -- 'todos' | 'grupo' | 'individual'
-alcance_valor   text null -- categoría o usuario_id según 'alcance'
-fecha_creacion  timestamptz
-estado          text      -- 'activo' | 'cancelado'
-```
+Pruebas: `supabase/tests/rls.sql` (46 verificaciones, se ejecutan como postgres y se revierten solas).
 
-### `obligaciones`
-La deuda individual de un jugador dentro de un evento de cobro.
-```
-id              uuid pk
-evento_cobro_id uuid fk -> eventos_cobro.id
-usuario_id      uuid fk -> usuarios.id
-monto           numeric(12,2)
-estado          text  -- 'pendiente' | 'parcial' | 'pagado'
-created_at      timestamptz
-```
+## Escrituras de negocio (RPC)
 
-### `comprobantes`
-```
-id              uuid pk
-usuario_id      uuid fk -> usuarios.id
-archivo_url     text     -- Supabase Storage
-monto_total     numeric(12,2)
-canal           text default 'manual'  -- 'manual' | 'wompi' | ... (futuro-proof, no usado aún)
-fecha_carga     timestamptz
-estado          text     -- 'pendiente' | 'aceptado' | 'rechazado'
-motivo_rechazo  text null
-revisado_por    uuid fk -> usuarios.id null
-revisado_en     timestamptz null
-```
+Las escrituras que tocan varias filas son funciones Postgres `security invoker` (RLS aplica dentro), en una sola transacción:
+- `aceptar_comprobante`
+- `crear_evento` (aplica saldos a favor existentes)
+- `cancelar_evento`
+- `cambiar_estado_miembro` (prorratea la mensualidad del mes)
+- `reordenar_reglas`
+- `agregar_regla_evento`
+- `guardar_conciliacion`
 
-### `pagos_aplicados`
-El desglose: qué parte de un comprobante fue a qué obligación. Se genera automáticamente por el motor de reglas (ver `03-reconciliation-engine.md`) y puede editarse antes de aceptar.
-```
-id              uuid pk
-comprobante_id  uuid fk -> comprobantes.id
-obligacion_id   uuid fk -> obligaciones.id null  -- null = saldo a favor sin asignar
-monto_aplicado  numeric(12,2)
-regla_aplicada  uuid fk -> reglas_conciliacion.id null  -- qué regla produjo esta línea (auditoría)
-```
+El motor de reglas vive en TypeScript (`lib/engine/`): **propone**, y la base valida y escribe. Las operaciones simples (subir o rechazar un comprobante, activar una regla, editar un evento) son escrituras directas bajo RLS.
 
-### `saldo_a_favor`
-Dinero de un comprobante que no se pudo aplicar a ninguna obligación pendiente, para consumir automáticamente en el siguiente evento de cobro del jugador.
-```
-id              uuid pk
-usuario_id      uuid fk -> usuarios.id
-monto           numeric(12,2)
-origen_comprobante_id uuid fk -> comprobantes.id
-consumido       boolean default false
-consumido_en_obligacion_id uuid fk -> obligaciones.id null
-created_at      timestamptz
-```
+## Bitácora
 
-### `reglas_conciliacion`
-El motor de reglas configurable — ver `03-reconciliation-engine.md` para el diseño completo. Solo el **tesorero** puede crear/editar/reordenar/desactivar reglas de su club (decisión explícita del club: el admin no configura esto).
-```
-id              uuid pk
-club_id         uuid fk -> clubes.id
-nombre          text
-tipo            text      -- 'monto_exacto' | 'mas_antiguo_primero' | 'evento_especifico' | ... (enum extensible)
-condicion       jsonb     -- parámetros de cuándo aplica
-accion          jsonb     -- parámetros de cómo aplica el monto
-prioridad       int       -- orden de evaluación, ascendente
-activa          boolean default true
-creado_por      uuid fk -> usuarios.id
-created_at      timestamptz
-updated_at      timestamptz
-```
+Solo eventos significativos, nunca lecturas. La escriben triggers, así que queda completa sin importar desde dónde se hizo el cambio. Para un club el volumen es de cientos de filas al mes. Si se vuelve multi-club grande, se evalúa particionar por `(club_id, created_at)`; por ahora no se optimiza por adelantado.
 
-### `conciliaciones`
-```
-id              uuid pk
-club_id         uuid fk -> clubes.id
-mes             date     -- primer día del mes
-saldo_inicial   numeric(12,2)
-saldo_final     numeric(12,2)
-total_aceptado  numeric(12,2)  -- calculado: suma de comprobantes aceptados en el mes
-diferencia      numeric(12,2)  -- calculado
-notas           text null
-creado_por      uuid fk -> usuarios.id
-created_at      timestamptz
-```
+## Fases siguientes (sin tablas vacías hoy)
 
-### `bitacora`
-Log unificado de eventos de negocio del club, filtrable. **Solo eventos significativos** (nunca vistas/lecturas) para que no crezca sin control — ver `04-ux-ia.md` para cómo se consume en UI y cuándo archivar.
-```
-id              uuid pk
-club_id         uuid fk -> clubes.id
-tipo            text     -- enum cerrado, ver abajo
-actor_id        uuid fk -> usuarios.id null  -- null = sistema (ej. recordatorio automático)
-objetivo_tipo   text     -- 'usuario' | 'evento_cobro' | 'comprobante' | 'conciliacion'
-objetivo_id     uuid
-descripcion     text     -- texto corto ya formateado, ej. "Camila Ruiz subió un comprobante de $180.000"
-metadata        jsonb    -- datos estructurados adicionales (monto, motivo, etc.)
-created_at      timestamptz
+- **Correos (fase 5):** tabla `notificaciones` como outbox, con unique por tipo + objetivo + miembro para no duplicar recordatorios.
+- **WhatsApp + OCR (fase 6):** no requiere tablas. Usa `comprobantes.canal = 'whatsapp'`, `origen_ref` (id del mensaje), `extraccion` y `miembros.telefono`.
+- **Wompi (fase 7):** columna `comision` en `comprobantes` y un webhook idempotente por `origen_ref`.
+- **Alta de clubes nuevos:** no requiere tablas.
 
-index (club_id, created_at desc)  -- para paginación por fecha
-```
-Tipos de evento v1 (enum cerrado — agregar valores requiere migración deliberada, no un campo libre):
-`evento_cobro_creado`, `evento_cobro_cancelado`, `jugador_creado`, `jugador_estado_cambiado`, `comprobante_subido`, `comprobante_aceptado`, `comprobante_rechazado`, `conciliacion_guardada`, `regla_conciliacion_cambiada`.
+## Pendiente de confirmar con el club (`TODO(club)` en el SQL)
 
-## RLS — principios
-
-- Un jugador solo lee/escribe sus propios `comprobantes`, `obligaciones`, `saldo_a_favor`.
-- Tesorero y administrador solo operan dentro de su propio `club_id` (join contra `roles_usuario` activo).
-- `reglas_conciliacion`: lectura para tesorero y admin del club; escritura solo para tesorero.
-- `bitacora`: lectura para tesorero y admin del club; nunca editable ni borrable desde la aplicación (append-only).
-- Toda fila con `usuario_id`/`club_id` se resuelve contra `auth.uid()` + `roles_usuario`, nunca contra un rol embebido estático en el JWT — porque el rol puede cambiar y una persona puede tener varios.
-
-## Nota sobre crecimiento de `bitacora`
-
-Para un solo club el volumen es bajo (cientos de eventos al mes, no miles) — no hace falta una estrategia de archivado en v1. Si esto se vuelve multi-club, considerar particionar por `club_id, created_at` o mover a una tabla fría después de N meses. No optimizar por adelantado.
+- Fórmula del prorrateo: hoy es proporcional a los días del mes, con un piso del 50% (`private.prorrateo_piso()`).
+- Si los lesionados reciben cobros nuevos: hoy solo los activos, salvo selección individual.

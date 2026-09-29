@@ -27,6 +27,16 @@ npm run share:dev    # next dev + ngrok (recarga en caliente)
 
 El script imprime usuario y clave (autenticación básica en ngrok; sin ella, cualquiera con la URL podría "actuar como" la tesorera). Opcional: `SHARE_PASSWORD=...` para fijar la clave y `NGROK_DOMAIN=tu-dominio.ngrok-free.app` para usar tu dominio estático gratuito. Detén `npm run dev` antes (usan el mismo puerto).
 
+### Supabase
+
+El esquema definitivo ya está en Supabase (proyecto "Tesoreria Clubes Ultimate"); la app todavía corre sobre el JSON local hasta el siguiente plan.
+
+- `supabase/migrations/` — fuente de verdad del esquema (9 tablas, RLS, triggers, funciones, Storage). Explicación en `docs/02-data-model.md`.
+- `supabase/tests/rls.sql` — 46 pruebas de RLS e invariantes; se ejecutan como postgres y se revierten solas (terminan con `RLS_OK …`).
+- `supabase/seed.sql` — datos demo generados con `npm run seed:sql` (mismo historial que el JSON).
+- `npm run seed:supabase` — carga el seed en Supabase. Requiere `SUPABASE_DB_URL` en `.env.local` (Dashboard → Connect → Session pooler).
+- `lib/data/database.types.ts` — tipos generados; regenerar después de cada migración.
+
 ### Estructura
 
 - `lib/engine/` — motor de reglas de conciliación (función pura + tests). El núcleo del producto.
