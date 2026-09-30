@@ -1,10 +1,11 @@
 import Link from "next/link"
 import { pageSession } from "@/lib/auth/page"
-import { totalAceptadoMes } from "@/lib/db/tesoreria"
+import { cuadreParaLote, totalAceptadoMes } from "@/lib/db/tesoreria"
 import { formatCOP, formatMes, hoyISO } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConciliacionForm } from "@/components/tesorero/conciliacion-form"
+import { AprobarLote } from "@/components/tesorero/aprobar-lote"
 import { ActivityPanel } from "@/components/activity-panel"
 import { StatusDot } from "@/components/status-dot"
 import { cn } from "@/lib/utils"
@@ -21,9 +22,10 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
   const { mes: raw } = await props.searchParams
   const mes = typeof raw === "string" && meses.includes(raw) ? raw : meses[0]
 
-  const [{ data: historial, error }, resumen] = await Promise.all([
+  const [{ data: historial, error }, resumen, cuadre] = await Promise.all([
     sb.from("conciliaciones").select("*").eq("club_id", s.club_id).order("mes", { ascending: false }),
     totalAceptadoMes(sb, s.club_id, mes),
+    cuadreParaLote(sb, s.club_id, mes),
   ])
   if (error) throw error
   const actual = historial?.find((c) => c.mes === mes)
@@ -50,8 +52,16 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
           <p className="text-[13px] text-muted-foreground">
             {formatMes(mes)} (por fecha de pago): {resumen.aceptados} comprobantes aceptados por {formatCOP(resumen.total)} · {resumen.pendientes} sin
             revisar · {resumen.rechazados} rechazados.
-            {resumen.pendientes ? " Revisa los pendientes antes de cerrar el mes." : ""}
+            {resumen.pendientes && !cuadre?.cuadra ? " Revisa los pendientes antes de cerrar el mes." : ""}
           </p>
+          {cuadre?.cuadra ? (
+            <p className="text-[13px]">
+              La diferencia de {formatCOP(cuadre.diferencia)} entre el banco y lo aceptado es exactamente lo que suman {cuadre.pendientes === 1 ? "el comprobante pendiente" : `los ${cuadre.pendientes} comprobantes pendientes`} de{" "}
+              {formatMes(mes)}. Al aprobarlos, el mes queda en $0 de diferencia. Cada uno se aplica con la propuesta de las reglas de conciliación, y los que no tengan
+              propuesta completa quedan en Comprobantes para revisarlos a mano.
+            </p>
+          ) : null}
+          <AprobarLote key={mes} mes={mes} pendientes={cuadre?.cuadra ? cuadre.pendientes : 0} />
           <ConciliacionForm
             mes={mes}
             totalAceptado={resumen.total}

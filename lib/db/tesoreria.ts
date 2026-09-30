@@ -3,6 +3,7 @@ import type { Supabase } from "@/lib/supabase/server"
 import { proposeAllocation } from "@/lib/engine/propose"
 import type { EngineRule, PendingObligation, Proposal } from "@/lib/engine/types"
 import type { Json } from "@/lib/data/database.types"
+import { cuadraConPendientes, diferenciaConPendientes } from "@/lib/aprobacion-lote"
 
 export interface PendienteConEvento extends PendingObligation {
   evento: string
@@ -55,6 +56,8 @@ export interface ComprobantePendiente {
   id: string
   miembro_id: string
   miembro: string
+  /** false si el comprobante no está ligado a un miembro visible (p. ej. un canal futuro sin identificar). */
+  miembro_identificado: boolean
   monto: number
   fecha_pago: string
   created_at: string
@@ -85,6 +88,7 @@ export async function bandeja(sb: Supabase, clubId: string, filtro?: { id?: stri
       id: c.id,
       miembro_id: c.miembro_id,
       miembro: c.miembros?.nombre ?? "?",
+      miembro_identificado: !!c.miembro_id && !!c.miembros,
       monto: Number(c.monto),
       fecha_pago: c.fecha_pago,
       created_at: c.created_at,
@@ -128,17 +132,44 @@ export async function totalAceptadoMes(sb: Supabase, clubId: string, mes: string
   const fin = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)
   const { data, error } = await sb
     .from("comprobantes")
-    .select("monto, estado")
+    .select("id, monto, estado")
     .eq("club_id", clubId)
     .gte("fecha_pago", inicio)
     .lt("fecha_pago", fin)
   if (error) throw error
   const filas = data ?? []
+  const pendientes = filas.filter((c) => c.estado === "pendiente")
   return {
+    /** Comprobantes pendientes con fecha de pago en el mes (los que respalda el extracto de ese mes). */
+    pendienteIds: pendientes.map((c) => c.id),
+    totalPendiente: pendientes.reduce((s, c) => s + Number(c.monto), 0),
     total: filas.filter((c) => c.estado === "aceptado").reduce((s, c) => s + Number(c.monto), 0),
     aceptados: filas.filter((c) => c.estado === "aceptado").length,
     pendientes: filas.filter((c) => c.estado === "pendiente").length,
     rechazados: filas.filter((c) => c.estado === "rechazado").length,
+  }
+}
+
+/**
+ * Cuadre del mes para aprobar en lote: la misma diferencia que guarda la conciliación
+ * (saldo final − saldo inicial − aceptado, con lo aceptado recalculado hoy) comparada contra lo
+ * pendiente del mes. `null` si el mes no tiene conciliación guardada (sin saldos del banco no hay cuadre).
+ */
+export async function cuadreParaLote(sb: Supabase, clubId: string, mes: string) {
+  const [{ data: conc, error }, resumen] = await Promise.all([
+    sb.from("conciliaciones").select("saldo_inicial, saldo_final, notas").eq("club_id", clubId).eq("mes", mes).maybeSingle(),
+    totalAceptadoMes(sb, clubId, mes),
+  ])
+  if (error) throw error
+  if (!conc) return null
+  const diferencia = Number(conc.saldo_final) - Number(conc.saldo_inicial) - resumen.total
+  const r = { diferencia, totalPendiente: resumen.totalPendiente, pendientes: resumen.pendienteIds.length }
+  return {
+    ...r,
+    conciliacion: conc,
+    pendienteIds: resumen.pendienteIds,
+    diferenciaConPendientes: diferenciaConPendientes(r),
+    cuadra: cuadraConPendientes(r),
   }
 }
 
