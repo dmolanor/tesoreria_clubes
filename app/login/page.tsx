@@ -39,7 +39,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
       <Card>
         <CardHeader>
           <CardTitle>Entrar</CardTitle>
-          <CardDescription>Sin contraseñas: te enviamos un enlace a tu correo.</CardDescription>
+          <CardDescription>Para miembros invitados por el club. Te enviamos un enlace a tu correo, sin contraseñas.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {error === "enlace" ? (

@@ -4,6 +4,8 @@ import ExcelJS from "exceljs"
 import { requireRole } from "@/lib/auth/session"
 import { check, runAction, DomainError, type ActionResult } from "@/lib/action-result"
 import { categoriasDelClub } from "@/lib/db/admin"
+import { invitarCorreo, origenDeLaPeticion } from "@/lib/auth/invitar"
+import { esCorreoDemo } from "@/lib/invitaciones"
 import type { EstadoMiembro, Rol } from "@/lib/db/types"
 
 /** Cambia el estado; al dejar de estar activo la base prorratea la mensualidad del mes. */
@@ -104,6 +106,48 @@ export async function importarJugadoresAction(_prev: ActionResult, formData: For
         .select("id"),
     )
     const n = creados?.length ?? 0
-    return `${n} jugadores creados; ${filas.length - n} omitidos porque su correo ya existía. Entran con su correo desde la pantalla de inicio de sesión.`
+    return `${n} jugadores creados; ${filas.length - n} omitidos porque su correo ya existía. Podrán entrar cuando les envíes la invitación desde el inicio.`
+  })
+}
+
+/**
+ * Invita por correo a los miembros del club que aún no tienen cuenta. Es un botón explícito
+ * (no se dispara al importar) porque son decenas de correos y Supabase limita los envíos por hora.
+ */
+export async function invitarPendientesAction(): Promise<ActionResult> {
+  return runAction(async () => {
+    const s = await requireRole("administrativo")
+    const pendientes = check(
+      await s.supabase.from("miembros").select("correo").eq("club_id", s.club_id).is("auth_user_id", null).neq("estado", "retirado"),
+    )
+    const correos = (pendientes ?? []).map((p) => p.correo).filter((c) => !esCorreoDemo(c))
+    if (correos.length === 0) throw new DomainError("Todos los miembros ya tienen cuenta")
+    const origen = await origenDeLaPeticion()
+    let enviadas = 0
+    let vinculadas = 0
+    const fallidos: string[] = []
+    let primerError = ""
+    const resumen = () =>
+      [
+        `${enviadas} de ${correos.length} invitaciones enviadas`,
+        vinculadas ? `${vinculadas} ya tenían cuenta y quedaron vinculados` : "",
+        fallidos.length ? `no se pudo invitar a ${fallidos.join(", ")} (${primerError})` : "",
+      ]
+        .filter(Boolean)
+        .join("; ")
+    for (const correo of correos) {
+      try {
+        const r = await invitarCorreo(s.club_id, correo, origen)
+        if (r === "enviada") enviadas++
+        else if (r === "ya_tenia_cuenta") vinculadas++
+      } catch (e) {
+        // Límite de envíos: no tiene sentido seguir intentando.
+        if (e instanceof DomainError) throw new DomainError(`${resumen()}. ${e.message}`)
+        fallidos.push(correo)
+        primerError ||= e instanceof Error ? e.message : String(e)
+      }
+    }
+    if (enviadas + vinculadas === 0) throw new DomainError(resumen())
+    return resumen()
   })
 }

@@ -3,8 +3,10 @@ import { createClient } from "@supabase/supabase-js"
 import type { Database } from "@/lib/data/database.types"
 
 /**
- * Cliente con la secret key: se salta RLS. Solo para el modo demo (listar cuentas demo).
- * Ninguna pantalla de negocio debe usarlo.
+ * Cliente con la secret key: se salta RLS. Usos permitidos, siempre del lado del servidor:
+ * modo demo (listar y cambiar de cuenta demo), invitar por correo (`lib/auth/invitar.ts`, después
+ * de `requireRole("administrativo")`) y completar el registro propio (`app/actions/registro.ts`).
+ * Ninguna lectura de negocio debe usarlo.
  */
 export function createAdminClient() {
   const key = process.env.SUPABASE_SECRET_KEY
