@@ -256,8 +256,12 @@ begin
   execute 'set local role authenticated';
   select count(*) into n from public.acuerdos_pago;
   assert n = 0, 'un jugador no ve acuerdos ajenos';
+  -- Sobre su propia deuda, para que la validación de jugador/deuda no se adelante a RLS.
   begin
-    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug, v_obl);
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id)
+    select club_a, m_jug, o.id from public.obligaciones o
+    join public.eventos_cobro e on e.id = o.evento_id
+    where e.nombre = 'Mensualidad' and o.miembro_id = m_jug;
     raise exception 'NO_FALLO jugador creó un acuerdo';
   exception when insufficient_privilege then ok := ok + 1;
   end;
@@ -311,6 +315,7 @@ begin
   execute 'reset role';
 
   -- ---------- recordatorios ----------
+  update public.miembros set roles = '{tesorero,jugador}' where id = m_tes;  -- devolverle tesorería
   perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
   insert into public.reglas_recordatorio (club_id, nombre, tipo, dia_mes) values (club_a, 'Mensualidad día 5', 'mensual', 5)
