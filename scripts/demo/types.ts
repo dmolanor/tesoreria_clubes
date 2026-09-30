@@ -116,9 +116,24 @@ export interface Conciliacion {
   saldo_inicial: number
   saldo_final: number
   total_aceptado: number
+  total_egresos: number
   diferencia: number
   notas: string | null
   creado_por: Uuid
+  created_at: IsoDateTime
+}
+
+export type CategoriaEgreso = "arriendo_cancha" | "arbitros" | "equipamiento" | "federacion" | "otro"
+
+export interface Egreso {
+  id: Uuid
+  club_id: Uuid
+  fecha: IsoDate
+  monto: number
+  concepto: string
+  categoria: CategoriaEgreso
+  creado_por: Uuid
+  anulado_en: IsoDateTime | null
   created_at: IsoDateTime
 }
 
@@ -133,6 +148,8 @@ export const TIPOS_BITACORA = [
   "comprobante_rechazado",
   "conciliacion_guardada",
   "regla_conciliacion_cambiada",
+  "egreso_registrado",
+  "egreso_anulado",
 ] as const
 export type TipoBitacora = (typeof TIPOS_BITACORA)[number]
 
@@ -141,7 +158,7 @@ export interface Bitacora {
   club_id: Uuid
   tipo: TipoBitacora
   actor_id: Uuid | null
-  objetivo_tipo: "usuario" | "evento_cobro" | "comprobante" | "conciliacion" | "regla"
+  objetivo_tipo: "usuario" | "evento_cobro" | "comprobante" | "conciliacion" | "regla" | "egreso"
   objetivo_id: Uuid
   descripcion: string
   metadata: Record<string, unknown>
@@ -160,6 +177,7 @@ export interface Db {
   saldo_a_favor: SaldoAFavor[]
   reglas_conciliacion: ReglaConciliacion[]
   conciliaciones: Conciliacion[]
+  egresos: Egreso[]
   bitacora: Bitacora[]
 }
 

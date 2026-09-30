@@ -5,6 +5,7 @@
 
 import type {
   Bitacora,
+  CategoriaEgreso,
   Db,
   EstadoJugador,
   EventoCobro,
@@ -565,6 +566,42 @@ export function totalAceptadoMes(db: Db, clubId: string, mes: string): number {
     .reduce((s, c) => s + c.monto_total, 0)
 }
 
+/** Suma de egresos no anulados cuya fecha cae en el mes (lo mismo que calcula la base). */
+export function totalEgresosMes(db: Db, clubId: string, mes: string): number {
+  return db.egresos
+    .filter((e) => e.club_id === clubId && !e.anulado_en && e.fecha.startsWith(mes.slice(0, 7)))
+    .reduce((s, e) => s + e.monto, 0)
+}
+
+export function registrarEgreso(
+  db: Db,
+  ctx: Ctx,
+  input: { id: string; fecha: string; monto: number; concepto: string; categoria: CategoriaEgreso },
+) {
+  db.egresos.push({ ...input, club_id: ctx.club_id, creado_por: ctx.actor_id ?? "", anulado_en: null, created_at: ctx.now })
+  log(db, ctx, {
+    tipo: "egreso_registrado",
+    objetivo_tipo: "egreso",
+    objetivo_id: input.id,
+    descripcion: `${nombreUsuario(db, ctx.actor_id)} registró un egreso de ${formatCOP(input.monto)}: ${input.concepto}`,
+    metadata: { monto: input.monto, categoria: input.categoria, fecha: input.fecha },
+  })
+}
+
+export function anularEgreso(db: Db, ctx: Ctx, id: string) {
+  const e = db.egresos.find((e) => e.id === id && e.club_id === ctx.club_id)
+  if (!e) throw new DomainError("Egreso no encontrado")
+  if (e.anulado_en) throw new DomainError("Este egreso ya estaba anulado")
+  e.anulado_en = ctx.now
+  log(db, ctx, {
+    tipo: "egreso_anulado",
+    objetivo_tipo: "egreso",
+    objetivo_id: e.id,
+    descripcion: `${nombreUsuario(db, ctx.actor_id)} anuló el egreso de ${formatCOP(e.monto)}: ${e.concepto}`,
+    metadata: { monto: e.monto, categoria: e.categoria, fecha: e.fecha },
+  })
+}
+
 export function guardarConciliacion(
   db: Db,
   ctx: Ctx,
@@ -572,7 +609,8 @@ export function guardarConciliacion(
 ) {
   const mes = `${input.mes.slice(0, 7)}-01`
   const total_aceptado = totalAceptadoMes(db, ctx.club_id, mes)
-  const diferencia = input.saldo_final - input.saldo_inicial - total_aceptado
+  const total_egresos = totalEgresosMes(db, ctx.club_id, mes)
+  const diferencia = input.saldo_final - input.saldo_inicial - (total_aceptado - total_egresos)
   const existing = db.conciliaciones.find((c) => c.club_id === ctx.club_id && c.mes === mes)
   const row = {
     club_id: ctx.club_id,
@@ -580,6 +618,7 @@ export function guardarConciliacion(
     saldo_inicial: input.saldo_inicial,
     saldo_final: input.saldo_final,
     total_aceptado,
+    total_egresos,
     diferencia,
     notas: input.notas,
     creado_por: ctx.actor_id ?? "",
@@ -598,7 +637,7 @@ export function guardarConciliacion(
     objetivo_tipo: "conciliacion",
     objetivo_id: id,
     descripcion: `${nombreUsuario(db, ctx.actor_id)} guardó la conciliación de ${mes.slice(0, 7)} — diferencia ${formatCOP(diferencia)}`,
-    metadata: { total_aceptado, diferencia },
+    metadata: { total_aceptado, total_egresos, diferencia },
   })
-  return { total_aceptado, diferencia }
+  return { total_aceptado, total_egresos, diferencia }
 }
