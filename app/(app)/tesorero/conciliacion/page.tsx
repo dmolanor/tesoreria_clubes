@@ -116,7 +116,13 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(historial ?? []).map((c) => {
+              {(historial ?? []).length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    Aún no hay meses cerrados.
+                  </TableCell>
+                </TableRow>
+              ) : (historial ?? []).map((c) => {
                 const dif = Number(c.diferencia ?? 0)
                 return (
                   <TableRow key={c.id}>
