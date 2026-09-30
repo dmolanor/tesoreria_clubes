@@ -23,7 +23,7 @@ export function ImportarJugadores() {
           <DialogTitle>Cargar jugadores</DialogTitle>
           <DialogDescription>
             Sube un .xlsx o .csv con columnas <strong>nombre</strong>, <strong>correo</strong> y <strong>categoría</strong> (Élite o Junior).
-            Los correos que ya existen se omiten. A los nuevos se les enviaría una invitación (simulada por ahora).
+            Los correos que ya existen se omiten. Cargar no envía correos; después invita a los nuevos con el botón “Invitar a los N sin cuenta” del inicio.
           </DialogDescription>
         </DialogHeader>
         <ActionForm action={importarJugadoresAction} onSuccess={() => setOpen(false)} className="space-y-4">
