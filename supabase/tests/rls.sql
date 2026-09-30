@@ -243,6 +243,7 @@ declare
   u_jug uuid := gen_random_uuid(); u_jug2 uuid := gen_random_uuid(); u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid();
   m_jug uuid; m_jug2 uuid;
   v_evento uuid; v_comp uuid;
+  v_hoy date; v_fecha date; v_esperado numeric;
   n int; v numeric; ok int := 0;
 begin
   insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}');
@@ -291,10 +292,52 @@ begin
   perform public.cambiar_estado_miembro(m_jug, 'lesionado');
   select o.monto into v from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug;
   assert v < 100000 and v >= 50000, format('mensualidad prorrateada con piso del 50%%, quedó %s', v);
+  -- Sin fecha efectiva se comporta como antes: prorratea con private.hoy del club.
+  v_hoy := private.hoy(club_a);
+  v_esperado := least(100000, greatest(round(100000 * 0.5, -2),
+    round(100000 * extract(day from v_hoy)
+          / extract(day from (date_trunc('month', v_hoy) + interval '1 month - 1 day')), -2)));
+  assert v = v_esperado, format('sin fecha efectiva prorratea con hoy: esperado %s, quedó %s', v_esperado, v);
   select saldo_a_favor into v from public.estado_cuenta_miembros where miembro_id = m_jug;
   assert v > 0, 'el exceso pagado queda como saldo a favor';
   select count(*) into n from public.bitacora where tipo = 'jugador_estado_cambiado' and descripcion like '%prorrateo%';
   assert n = 1, 'la bitácora explica el prorrateo';
+  ok := ok + 4;
+  execute 'reset role';
+
+  -- Fecha efectiva: lesión el día 21 del mes pasado, registrada hoy, con esa mensualidad ya pagada.
+  v_fecha := (date_trunc('month', v_hoy) - interval '1 month')::date + 20;
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_evento := public.crear_evento(club_a, 'Mensualidad pasada', 'mensualidad', 100000, v_fecha - 10, 'todos');
+  execute 'reset role';
+  insert into public.comprobantes (club_id, miembro_id, monto, estado, revisado_en) values (club_a, m_jug2, 100000, 'aceptado', now())
+  returning id into v_comp;
+  insert into public.aplicaciones (club_id, comprobante_id, obligacion_id, monto, origen)
+  select club_a, v_comp, o.id, 100000, 'manual' from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug2;
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  -- una fecha futura se rechaza y no cambia nada
+  begin
+    perform public.cambiar_estado_miembro(m_jug2, 'lesionado', v_hoy + 1);
+    raise exception 'NO_FALLO aceptó una fecha efectiva futura';
+  exception when check_violation then ok := ok + 1;
+  end;
+  select count(*) into n from public.miembros where id = m_jug2 and estado = 'activo';
+  assert n = 1, 'la fecha futura no cambió el estado';
+  ok := ok + 1;
+  perform public.cambiar_estado_miembro(m_jug2, 'lesionado', v_fecha);
+  v_esperado := greatest(round(100000 * 0.5, -2),
+    round(100000 * 21 / extract(day from (date_trunc('month', v_fecha) + interval '1 month - 1 day')), -2));
+  select o.monto into v from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug2;
+  assert v = v_esperado, format('prorrateo al día 21 del mes de la fecha efectiva: esperado %s, quedó %s', v_esperado, v);
+  select saldo_a_favor into v from public.estado_cuenta_miembros where miembro_id = m_jug2;
+  assert v = 100000 - v_esperado, format('mes pasado ya pagado: el excedente queda a favor (%s), dice %s', 100000 - v_esperado, v);
+  select count(*) into n from public.bitacora
+  where tipo = 'jugador_estado_cambiado' and objetivo_id = m_jug2
+    and descripcion like '%desde el ' || to_char(v_fecha, 'DD/MM/YYYY') || '%'
+    and metadata->>'fecha_efectiva' = v_fecha::text;
+  assert n = 1, 'la bitácora muestra la fecha efectiva';
   ok := ok + 3;
   execute 'reset role';
 
