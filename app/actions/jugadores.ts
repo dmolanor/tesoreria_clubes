@@ -9,11 +9,27 @@ import { invitarCorreo, origenDeLaPeticion } from "@/lib/auth/invitar"
 import { correoValido, esCorreoDemo, normalizarCategoria, normalizarCorreo } from "@/lib/invitaciones"
 import type { EstadoMiembro, Rol } from "@/lib/db/types"
 
-/** Cambia el estado; al dejar de estar activo la base prorratea la mensualidad del mes. */
-export async function cambiarEstadoAction(miembroId: string, estado: EstadoMiembro): Promise<ActionResult> {
+/**
+ * Cambia el estado; al dejar de estar activo la base prorratea la mensualidad del mes de la fecha
+ * efectiva (YYYY-MM-DD). Sin fecha, la base usa hoy; una fecha futura la rechaza la base.
+ */
+export async function cambiarEstadoAction(
+  miembroId: string,
+  estado: EstadoMiembro,
+  fechaEfectiva?: string,
+): Promise<ActionResult> {
   return runAction(async () => {
     const s = await requireRole("administrativo")
-    check(await s.supabase.rpc("cambiar_estado_miembro", { p_miembro_id: miembroId, p_estado: estado }))
+    if (fechaEfectiva !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(fechaEfectiva)) {
+      throw new DomainError("Elige una fecha válida para el cambio de estado")
+    }
+    check(
+      await s.supabase.rpc("cambiar_estado_miembro", {
+        p_miembro_id: miembroId,
+        p_estado: estado,
+        ...(fechaEfectiva ? { p_fecha_efectiva: fechaEfectiva } : {}),
+      }),
+    )
     return `Estado cambiado a ${estado}`
   })
 }

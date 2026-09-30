@@ -625,6 +625,7 @@ export type Database = {
       cambiar_estado_miembro: {
         Args: {
           p_estado: Database["public"]["Enums"]["estado_miembro"]
+          p_fecha_efectiva?: string
           p_miembro_id: string
         }
         Returns: undefined

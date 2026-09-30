@@ -39,7 +39,7 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 - **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia y **es el único que configura reglas**. El administrador crea y cancela eventos y gestiona jugadores, y lee reglas y conciliación. La bitácora la leen tesorería y administración.
 - **Storage:** bucket privado `comprobantes`, ruta `{club_id}/{miembro_id}/{archivo}`. Cada jugador sube y lee su carpeta; tesorería y administración leen la del club. Nadie edita ni borra archivos.
 
-Pruebas: `supabase/tests/rls.sql` (46 verificaciones, se ejecutan como postgres y se revierten solas).
+Pruebas: `supabase/tests/rls.sql` (52 verificaciones, se ejecutan como postgres y se revierten solas).
 
 ## Escrituras de negocio (RPC)
 
@@ -47,7 +47,7 @@ Las escrituras que tocan varias filas son funciones Postgres `security invoker` 
 - `aceptar_comprobante`
 - `crear_evento` (aplica saldos a favor existentes)
 - `cancelar_evento`
-- `cambiar_estado_miembro` (prorratea la mensualidad del mes)
+- `cambiar_estado_miembro(miembro, estado, fecha_efectiva)`: al dejar de estar activo prorratea la mensualidad del mes de la fecha efectiva, proporcional a los días hasta esa fecha y con el piso de `private.prorrateo_piso()`. La fecha es opcional (por defecto, hoy en la zona horaria del club) y no puede ser futura. Si cae en un mes ya pagado completo, el monto baja igual y el excedente queda como saldo a favor del jugador. Entre estados no activos o hacia activo la fecha solo queda en la bitácora ("desde el 21/09/2026").
 - `reordenar_reglas`
 - `agregar_regla_evento`
 - `guardar_conciliacion`
