@@ -10,6 +10,14 @@ export function correoValido(correo: string): boolean {
   return CORREO_RE.test(correo)
 }
 
+const sinTildes = (x: string) => x.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase()
+
+/** Acepta la categoría sin importar tildes ni mayúsculas ("elite" → "Élite"). */
+export function normalizarCategoria(raw: string, categorias: string[]): string | null {
+  const c = sinTildes(raw)
+  return c ? (categorias.find((x) => sinTildes(x) === c) ?? null) : null
+}
+
 /** Cuentas de los datos demo: nunca se les manda correo (rebotarían y Supabase penaliza los rebotes). */
 export function esCorreoDemo(correo: string): boolean {
   return normalizarCorreo(correo).endsWith("@example.com")

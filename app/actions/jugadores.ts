@@ -1,11 +1,12 @@
 "use server"
 
 import ExcelJS from "exceljs"
+import { revalidatePath } from "next/cache"
 import { requireRole } from "@/lib/auth/session"
 import { check, runAction, DomainError, type ActionResult } from "@/lib/action-result"
 import { categoriasDelClub } from "@/lib/db/admin"
 import { invitarCorreo, origenDeLaPeticion } from "@/lib/auth/invitar"
-import { esCorreoDemo } from "@/lib/invitaciones"
+import { correoValido, esCorreoDemo, normalizarCategoria, normalizarCorreo } from "@/lib/invitaciones"
 import type { EstadoMiembro, Rol } from "@/lib/db/types"
 
 /** Cambia el estado; al dejar de estar activo la base prorratea la mensualidad del mes. */
@@ -30,14 +31,6 @@ export async function setRolAction(miembroId: string, rol: Rol, activo: boolean)
 }
 
 type Fila = { nombre: string; correo: string; categoria: string }
-
-const sinTildes = (x: string) => x.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase()
-
-/** Acepta la categoría sin importar tildes ni mayúsculas ("elite" → "Élite"). */
-function normalizarCategoria(raw: string, categorias: string[]): string | null {
-  const c = sinTildes(raw)
-  return c ? (categorias.find((x) => sinTildes(x) === c) ?? null) : null
-}
 
 /** Encuentra columnas por nombre de encabezado (nombre, correo/email, categoría). */
 function mapearFilas(rows: string[][]): Fila[] {
@@ -107,6 +100,43 @@ export async function importarJugadoresAction(_prev: ActionResult, formData: For
     )
     const n = creados?.length ?? 0
     return `${n} jugadores creados; ${filas.length - n} omitidos porque su correo ya existía. Podrán entrar cuando les envíes la invitación desde el inicio.`
+  })
+}
+
+/**
+ * Alta individual: crea el miembro (jugador) y le envía la invitación. Si el correo ya estaba en el
+ * club sin cuenta, solo reenvía la invitación. La bitácora registra la alta (trigger de `miembros`).
+ */
+export async function agregarJugadorAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
+    const s = await requireRole("administrativo")
+    const nombre = String(formData.get("nombre") ?? "").trim()
+    const correo = normalizarCorreo(String(formData.get("correo") ?? ""))
+    if (!nombre) throw new DomainError("Escribe el nombre")
+    if (!correoValido(correo)) throw new DomainError("Escribe un correo válido")
+    const categoria = normalizarCategoria(String(formData.get("categoria") ?? ""), await categoriasDelClub(s.supabase, s.club_id))
+
+    const existente = check(
+      await s.supabase.from("miembros").select("nombre, auth_user_id").eq("club_id", s.club_id).eq("correo", correo).maybeSingle(),
+    )
+    if (existente?.auth_user_id) throw new DomainError(`${existente.nombre} ya está en el club con ${correo} y tiene cuenta`)
+    if (!existente) {
+      check(await s.supabase.from("miembros").insert({ club_id: s.club_id, nombre, correo, categoria, roles: ["jugador"] }))
+    }
+    const quien = existente?.nombre ?? nombre
+
+    let r: Awaited<ReturnType<typeof invitarCorreo>>
+    try {
+      r = await invitarCorreo(s.club_id, correo, await origenDeLaPeticion())
+    } catch (e) {
+      // El miembro ya quedó creado: refrescar para que aparezca en "Invitar a los N sin cuenta".
+      revalidatePath("/", "layout")
+      const motivo = e instanceof Error ? e.message : String(e)
+      throw new DomainError(`${quien} quedó en el club, pero la invitación no salió (${motivo}). Reintenta desde "Invitar a los sin cuenta"`)
+    }
+    if (r === "demo") return `${quien} agregado. Es un correo de demo, así que no se envía invitación`
+    if (r === "ya_tenia_cuenta") return `${quien} agregado. Ya tenía cuenta, así que puede entrar con ${correo}`
+    return existente ? `${quien} ya estaba en el club; le reenviamos la invitación a ${correo}` : `${quien} agregado. Le enviamos la invitación a ${correo}`
   })
 }
 

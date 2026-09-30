@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ProgressBar } from "@/components/progress-bar"
 import { NuevoEvento } from "@/components/admin/nuevo-evento"
 import { ImportarJugadores } from "@/components/admin/importar-jugadores"
+import { AgregarJugador } from "@/components/admin/agregar-jugador"
 import { ActivityPanel } from "@/components/activity-panel"
 import { ActionButton } from "@/components/action-button"
 import { invitarPendientesAction } from "@/app/actions/jugadores"
@@ -43,6 +44,7 @@ export default async function AdminHome() {
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
         <NuevoEvento jugadores={jugadores} categorias={categorias} />
+        <AgregarJugador categorias={categorias} />
         <ImportarJugadores />
         {sinCuenta > 0 ? (
           <ActionButton

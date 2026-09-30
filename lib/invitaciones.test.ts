@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { correoValido, esCorreoDemo, esCorreoSinCuenta, esCuentaExistente, normalizarCorreo, normalizarTelefono } from "./invitaciones"
+import {
+  correoValido,
+  esCorreoDemo,
+  esCorreoSinCuenta,
+  esCuentaExistente,
+  normalizarCategoria,
+  normalizarCorreo,
+  normalizarTelefono,
+} from "./invitaciones"
 
 describe("correo", () => {
   it("normaliza espacios y mayúsculas", () => {
@@ -16,6 +24,20 @@ describe("correo", () => {
   it("reconoce las cuentas demo", () => {
     expect(esCorreoDemo("Laura@Example.com")).toBe(true)
     expect(esCorreoDemo("laura@example.com.co")).toBe(false)
+  })
+})
+
+describe("normalizarCategoria", () => {
+  const categorias = ["Élite", "Junior"]
+
+  it("ignora tildes, mayúsculas y espacios", () => {
+    expect(normalizarCategoria(" elite ", categorias)).toBe("Élite")
+    expect(normalizarCategoria("JUNIOR", categorias)).toBe("Junior")
+  })
+
+  it("devuelve null si está vacía o no existe en el club", () => {
+    expect(normalizarCategoria("", categorias)).toBeNull()
+    expect(normalizarCategoria("Master", categorias)).toBeNull()
   })
 })
 
