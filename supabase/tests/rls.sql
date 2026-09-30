@@ -301,3 +301,144 @@ begin
   raise exception 'STORAGE_Y_PRORRATEO_OK % pruebas pasaron', ok;
 end
 $pruebas_storage$;
+
+-- Egresos y cuadre (tercer bloque, mismo patrón).
+do $pruebas_egresos$
+declare
+  club_a uuid := gen_random_uuid();
+  club_b uuid := gen_random_uuid();
+  u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid(); u_jug uuid := gen_random_uuid(); u_tesb uuid := gen_random_uuid();
+  m_jug uuid;
+  v_egreso uuid; v_egreso_b uuid;
+  v_mes date := date_trunc('month', current_date)::date;
+  n int; v numeric; ok int := 0;
+begin
+  insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}'), (club_b, 'Club B', '{Open}');
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values
+    (club_a, 'Tes', 'tes@e.test', null, '{tesorero}'), (club_a, 'Adm', 'adm@e.test', null, '{administrativo}'),
+    (club_a, 'Jugador', 'jug@e.test', 'Élite', '{jugador}'), (club_b, 'Tes B', 'tesb@e.test', 'Open', '{tesorero,administrativo}');
+  insert into auth.users (id, email) values (u_tes, 'tes@e.test'), (u_adm, 'adm@e.test'), (u_jug, 'jug@e.test'), (u_tesb, 'tesb@e.test');
+  select id into m_jug from public.miembros where auth_user_id = u_jug;
+  -- Un ingreso aceptado del mes (como postgres) para probar el cuadre.
+  insert into public.comprobantes (club_id, miembro_id, monto, fecha_pago, estado, revisado_en)
+  values (club_a, m_jug, 500000, v_mes, 'aceptado', now());
+
+  -- ---------- tesorera A: registra y anula ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria) values
+    (club_a, v_mes, 300000, 'Arriendo de cancha', 'arriendo_cancha') returning id into v_egreso;
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_a, v_mes, 50000, 'Duplicado', 'otro');
+  select count(*) into n from public.egresos e where e.creado_por = (select id from public.miembros where auth_user_id = u_tes);
+  assert n = 2, 'creado_por = la tesorera (lo fija el trigger)';
+  select count(*) into n from public.bitacora where tipo = 'egreso_registrado' and club_id = club_a and descripcion like '%$300.000%';
+  assert n = 1, 'bitácora registra el egreso con el monto formateado';
+  ok := ok + 3;
+  update public.egresos set anulado_en = now() where concepto = 'Duplicado';
+  select count(*) into n from public.bitacora where tipo = 'egreso_anulado' and club_id = club_a;
+  assert n = 1, 'bitácora registra la anulación';
+  ok := ok + 1;
+  -- no se re-anula ni se edita el monto
+  begin
+    update public.egresos set anulado_en = now() where concepto = 'Duplicado';
+    raise exception 'NO_FALLO re-anulación';
+  exception when check_violation then ok := ok + 1;
+  end;
+  begin
+    update public.egresos set monto = 1 where id = v_egreso;
+    raise exception 'NO_FALLO tesorera editó el monto';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    delete from public.egresos where id = v_egreso;
+    raise exception 'NO_FALLO tesorera borró un egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  -- no a nombre de otro club
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_b, v_mes, 1000, 'x');
+    raise exception 'NO_FALLO egreso en otro club';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  -- ni con fecha futura
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, current_date + 40, 1000, 'x');
+    raise exception 'NO_FALLO egreso futuro';
+  exception when check_violation then ok := ok + 1;
+  end;
+  -- Storage: sube el soporte a la carpeta de egresos del club
+  insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/f.pdf', club_a));
+  ok := ok + 1;
+  -- Cuadre: 500.000 aceptados − 300.000 de egresos (el anulado no cuenta) = 200.000 esperados
+  perform public.guardar_conciliacion(club_a, v_mes, 1000000, 1200000);
+  select total_egresos into v from public.conciliaciones where club_id = club_a;
+  assert v = 300000, format('total_egresos 300.000 (sin el anulado), dice %s', v);
+  select diferencia into v from public.conciliaciones where club_id = club_a;
+  assert v = 0, format('cuadra: 1.200.000 − 1.000.000 − (500.000 − 300.000) = 0, dice %s', v);
+  ok := ok + 2;
+  execute 'reset role';
+
+  -- ---------- admin A: lee, no registra ni anula ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.egresos;
+  assert n = 2, format('admin lee los egresos del club, vio %s', n);
+  select count(*) into n from storage.objects where bucket_id = 'comprobantes' and name like format('%s/egresos/%%', club_a);
+  assert n = 1, 'admin ve el soporte';
+  ok := ok + 2;
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, v_mes, 1000, 'x');
+    raise exception 'NO_FALLO admin registró un egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  update public.egresos set anulado_en = now() where id = v_egreso;
+  get diagnostics n = row_count;
+  assert n = 0, 'NO_FALLO admin anuló un egreso';
+  ok := ok + 1;
+  begin
+    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/g.pdf', club_a));
+    raise exception 'NO_FALLO admin subió un soporte';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- jugador A: no ve ni registra ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.egresos;
+  assert n = 0, 'el jugador no ve egresos';
+  select count(*) into n from storage.objects where bucket_id = 'comprobantes';
+  assert n = 0, 'el jugador no ve los soportes';
+  ok := ok + 2;
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, v_mes, 1000, 'x');
+    raise exception 'NO_FALLO jugador registró un egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/h.pdf', club_a));
+    raise exception 'NO_FALLO jugador subió un soporte de egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- club B: aislamiento ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tesb, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.egresos (club_id, fecha, monto, concepto) values (club_b, v_mes, 70000, 'Discos') returning id into v_egreso_b;
+  select count(*) into n from public.egresos;
+  assert n = 1, format('B solo ve su egreso, vio %s', n);
+  update public.egresos set anulado_en = now() where id = v_egreso;
+  get diagnostics n = row_count;
+  assert n = 0, 'B no anula egresos de A';
+  ok := ok + 2;
+  begin
+    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/i.pdf', club_a));
+    raise exception 'NO_FALLO B subió a la carpeta de A';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  raise exception 'EGRESOS_OK % pruebas pasaron', ok;
+end
+$pruebas_egresos$;
