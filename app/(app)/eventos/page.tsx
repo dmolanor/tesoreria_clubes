@@ -88,7 +88,7 @@ export default async function EventosPage(props: PageProps<"/eventos">) {
                     <TableCell>{alcance}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCOP(Number(e.monto))}</TableCell>
                     <TableCell>{formatFecha(e.fecha_limite, true)}</TableCell>
-                    <TableCell>{e.estado === "activo" && p ? <ProgressBar value={p.pagadas} total={p.total} /> : "—"}</TableCell>
+                    <TableCell>{e.estado === "activo" && p ? <ProgressBar value={p.pagadas} committed={p.con_acuerdo} total={p.total} /> : "—"}</TableCell>
                   </TableRow>
                 )
               })}

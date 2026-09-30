@@ -66,7 +66,7 @@ export default async function AdminHome() {
         </CardHeader>
         <CardContent>
           {atencion.length === 0 ? (
-            <p className="text-muted-foreground">Nada urgente: los cobros cercanos van bien.</p>
+            <p className="text-muted-foreground">Los cobros cercanos van bien.</p>
           ) : (
             <ul className="divide-y divide-border">
               {atencion.map(({ e, p }) => (
@@ -78,7 +78,7 @@ export default async function AdminHome() {
                         {relativoVencimiento(e.fecha_limite, hoy)} · {formatFecha(e.fecha_limite, true)}
                       </span>
                     </div>
-                    <ProgressBar value={p!.pagadas} total={p!.total} className="mt-1" />
+                    <ProgressBar value={p!.pagadas} committed={p!.con_acuerdo} total={p!.total} className="mt-1" />
                     <p className="mt-1 text-[13px] text-muted-foreground">
                       {formatCOP(p!.recaudado)} recaudados de {formatCOP(p!.monto_total)}
                     </p>

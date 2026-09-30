@@ -61,8 +61,8 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-[13px] text-muted-foreground">
-            {formatMes(mes)} (por fecha de pago): {resumen.aceptados} comprobantes aceptados por {formatCOP(resumen.total)} · {resumen.pendientes} sin
-            revisar · {resumen.rechazados} rechazados.
+            Por fecha de pago, {formatMes(mes).toLowerCase()} trae {resumen.aceptados} comprobantes aceptados por {formatCOP(resumen.total)},{" "}
+            {resumen.pendientes} sin revisar y {resumen.rechazados} rechazados.
             {resumen.pendientes && !cuadre?.cuadra ? " Revisa los pendientes antes de cerrar el mes." : ""}
           </p>
           {cuadre?.cuadra ? (

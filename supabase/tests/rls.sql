@@ -13,6 +13,7 @@ declare
   u_tesb uuid := gen_random_uuid();  -- tesorero en B
   m_tes uuid; m_adm uuid; m_jug uuid; m_jug2 uuid; m_tesb uuid;
   v_evento uuid; v_torneo uuid; v_obl uuid; v_comp uuid; v_comp2 uuid; v_comp_b uuid;
+  v_acuerdo uuid;
   n int;
   v numeric;
   ok int := 0;
@@ -214,6 +215,87 @@ begin
   end;
   execute 'reset role';
 
+  -- ---------- acuerdos de pago ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select o.id into v_obl from public.obligaciones o
+  join public.eventos_cobro e on e.id = o.evento_id
+  where e.nombre = 'Mensualidad' and o.miembro_id = m_jug2;
+  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, notas)
+  values (club_a, m_jug2, v_obl, 'Paga en dos partes') returning id into v_acuerdo;
+  insert into public.cuotas_acuerdo (club_id, acuerdo_id, numero, fecha, monto) values
+    (club_a, v_acuerdo, 1, current_date + 7, 50000),
+    (club_a, v_acuerdo, 2, current_date + 14, 50000);
+  select count(*) into n from public.bitacora where tipo = 'acuerdo_pago_cambiado';
+  assert n = 1, 'bitácora registra el acuerdo';
+  ok := ok + 2;
+  -- el acuerdo y la deuda son del mismo jugador
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug, v_obl);
+    raise exception 'NO_FALLO acuerdo con jugador distinto al de la deuda';
+  exception when check_violation then ok := ok + 1;
+  end;
+  -- una sola deuda, un solo acuerdo activo
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl);
+    raise exception 'NO_FALLO segundo acuerdo activo sobre la misma deuda';
+  exception when unique_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- jugador 2 ve el suyo; jugador 1 no ve nada y no puede crear
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug2, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.acuerdos_pago;
+  assert n = 1, 'el jugador ve su propio acuerdo';
+  select count(*) into n from public.cuotas_acuerdo;
+  assert n = 2, 'el jugador ve sus cuotas';
+  ok := ok + 2;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.acuerdos_pago;
+  assert n = 0, 'un jugador no ve acuerdos ajenos';
+  -- Sobre su propia deuda, para que la validación de jugador/deuda no se adelante a RLS.
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id)
+    select club_a, m_jug, o.id from public.obligaciones o
+    join public.eventos_cobro e on e.id = o.evento_id
+    where e.nombre = 'Mensualidad' and o.miembro_id = m_jug;
+    raise exception 'NO_FALLO jugador creó un acuerdo';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    insert into public.cuotas_acuerdo (club_id, acuerdo_id, numero, fecha, monto) values (club_a, v_acuerdo, 3, current_date, 1000);
+    raise exception 'NO_FALLO jugador agregó una cuota';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  ok := ok + 1;  -- el assert de aislamiento
+  execute 'reset role';
+
+  -- administración lee pero no crea
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.acuerdos_pago;
+  assert n = 1, 'administración ve los acuerdos del club';
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl);
+    raise exception 'NO_FALLO administración creó un acuerdo';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  ok := ok + 1;
+  execute 'reset role';
+
+  -- cancelar libera la deuda para un acuerdo nuevo
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.acuerdos_pago set estado = 'cancelado' where id = v_acuerdo;
+  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl) returning id into v_acuerdo;
+  select count(*) into n from public.acuerdos_pago where obligacion_id = v_obl and estado = 'activo';
+  assert n = 1, 'tras cancelar queda un solo acuerdo activo';
+  ok := ok + 2;
+  execute 'reset role';
+
   -- ---------- club B no ve A; cambio de rol aplica de inmediato ----------
   perform set_config('request.jwt.claims', json_build_object('sub', u_tesb, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
@@ -230,6 +312,38 @@ begin
   select count(*) into n from public.comprobantes;
   assert n = 1, format('sin rol de tesorera solo ve su comprobante, vio %s', n);
   ok := ok + 1;
+  execute 'reset role';
+
+  -- ---------- recordatorios ----------
+  update public.miembros set roles = '{tesorero,jugador}' where id = m_tes;  -- devolverle tesorería
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.reglas_recordatorio (club_id, nombre, tipo, dia_mes) values (club_a, 'Mensualidad día 5', 'mensual', 5)
+  returning id into v_comp;
+  update public.reglas_recordatorio set activa = false where id = v_comp;
+  delete from public.reglas_recordatorio where id = v_comp;
+  ok := ok + 1;
+  begin
+    insert into public.reglas_recordatorio (club_id, nombre, tipo, dias_antes) values (club_a, 'x', 'mensual', 3);
+    raise exception 'NO_FALLO regla mensual con dias_antes';
+  exception when check_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.reglas_recordatorio (club_id, nombre, tipo) values (club_a, 'x', 'acuerdo_pago');
+    raise exception 'NO_FALLO jugador creó un recordatorio';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.reglas_recordatorio (club_id, nombre, tipo) values (club_a, 'x', 'acuerdo_pago');
+    raise exception 'NO_FALLO administración creó un recordatorio';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
   execute 'reset role';
 
   raise exception 'RLS_OK % pruebas pasaron', ok;

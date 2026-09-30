@@ -38,6 +38,7 @@ export async function TopBar({ session }: { session: Session }) {
       { href: "/tesorero", label: "Inicio" },
       { href: "/tesorero/conciliacion", label: "Conciliación" },
       { href: "/tesorero/mora", label: "Mora" },
+      { href: "/tesorero/acuerdos", label: "Acuerdos" },
       { href: "/tesorero/comprobantes", label: "Comprobantes", badge: pendientes },
       { href: "/tesorero/reglas", label: "Reglas de conciliación", icon: "settings" },
     ],

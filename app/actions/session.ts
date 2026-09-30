@@ -48,7 +48,7 @@ export async function enviarEnlace(_prev: ActionResult, formData: FormData): Pro
   })
   if (error) {
     if (esCorreoSinCuenta(error)) return { ok: false, error: "Ese correo no tiene invitación. Pídesela a la administración del club" }
-    return { ok: false, error: error.status === 429 ? "Se enviaron demasiados enlaces; espera unos minutos" : error.message }
+    return { ok: false, error: error.status === 429 ? "Se enviaron demasiados enlaces. Espera unos minutos." : error.message }
   }
   return { ok: true, message: `Te enviamos un enlace a ${correo}. Ábrelo desde este u otro dispositivo.` }
 }

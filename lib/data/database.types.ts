@@ -15,6 +15,78 @@ export type Database = {
   }
   public: {
     Tables: {
+      acuerdos_pago: {
+        Row: {
+          club_id: string
+          creado_por: string | null
+          created_at: string
+          estado: Database["public"]["Enums"]["estado_acuerdo"]
+          id: string
+          miembro_id: string
+          notas: string | null
+          obligacion_id: string
+          updated_at: string
+        }
+        Insert: {
+          club_id: string
+          creado_por?: string | null
+          created_at?: string
+          estado?: Database["public"]["Enums"]["estado_acuerdo"]
+          id?: string
+          miembro_id: string
+          notas?: string | null
+          obligacion_id: string
+          updated_at?: string
+        }
+        Update: {
+          club_id?: string
+          creado_por?: string | null
+          created_at?: string
+          estado?: Database["public"]["Enums"]["estado_acuerdo"]
+          id?: string
+          miembro_id?: string
+          notas?: string | null
+          obligacion_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "acuerdos_pago_club_id_miembro_id_fkey"
+            columns: ["club_id", "miembro_id"]
+            isOneToOne: false
+            referencedRelation: "estado_cuenta_miembros"
+            referencedColumns: ["club_id", "miembro_id"]
+          },
+          {
+            foreignKeyName: "acuerdos_pago_club_id_miembro_id_fkey"
+            columns: ["club_id", "miembro_id"]
+            isOneToOne: false
+            referencedRelation: "miembros"
+            referencedColumns: ["club_id", "id"]
+          },
+          {
+            foreignKeyName: "acuerdos_pago_club_id_obligacion_id_fkey"
+            columns: ["club_id", "obligacion_id"]
+            isOneToOne: false
+            referencedRelation: "obligaciones"
+            referencedColumns: ["club_id", "id"]
+          },
+          {
+            foreignKeyName: "acuerdos_pago_club_id_creado_por_fkey"
+            columns: ["club_id", "creado_por"]
+            isOneToOne: false
+            referencedRelation: "estado_cuenta_miembros"
+            referencedColumns: ["club_id", "miembro_id"]
+          },
+          {
+            foreignKeyName: "acuerdos_pago_club_id_creado_por_fkey"
+            columns: ["club_id", "creado_por"]
+            isOneToOne: false
+            referencedRelation: "miembros"
+            referencedColumns: ["club_id", "id"]
+          },
+        ]
+      }
       aplicaciones: {
         Row: {
           anulada_en: string | null
@@ -328,6 +400,44 @@ export type Database = {
           },
         ]
       }
+      cuotas_acuerdo: {
+        Row: {
+          acuerdo_id: string
+          club_id: string
+          created_at: string
+          fecha: string
+          id: string
+          monto: number
+          numero: number
+        }
+        Insert: {
+          acuerdo_id: string
+          club_id: string
+          created_at?: string
+          fecha: string
+          id?: string
+          monto: number
+          numero: number
+        }
+        Update: {
+          acuerdo_id?: string
+          club_id?: string
+          created_at?: string
+          fecha?: string
+          id?: string
+          monto?: number
+          numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cuotas_acuerdo_club_id_acuerdo_id_fkey"
+            columns: ["club_id", "acuerdo_id"]
+            isOneToOne: false
+            referencedRelation: "acuerdos_pago"
+            referencedColumns: ["club_id", "id"]
+          },
+        ]
+      }
       egresos: {
         Row: {
           anulado_en: string | null
@@ -635,6 +745,45 @@ export type Database = {
           },
         ]
       }
+      reglas_recordatorio: {
+        Row: {
+          activa: boolean
+          canal: string
+          club_id: string
+          created_at: string
+          dia_mes: number | null
+          dias_antes: number | null
+          id: string
+          nombre: string
+          tipo: Database["public"]["Enums"]["tipo_recordatorio"]
+          updated_at: string
+        }
+        Insert: {
+          activa?: boolean
+          canal?: string
+          club_id: string
+          created_at?: string
+          dia_mes?: number | null
+          dias_antes?: number | null
+          id?: string
+          nombre: string
+          tipo: Database["public"]["Enums"]["tipo_recordatorio"]
+          updated_at?: string
+        }
+        Update: {
+          activa?: boolean
+          canal?: string
+          club_id?: string
+          created_at?: string
+          dia_mes?: number | null
+          dias_antes?: number | null
+          id?: string
+          nombre?: string
+          tipo?: Database["public"]["Enums"]["tipo_recordatorio"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       estado_cuenta_miembros: {
@@ -660,6 +809,7 @@ export type Database = {
       progreso_eventos: {
         Row: {
           club_id: string | null
+          con_acuerdo: number | null
           evento_id: string | null
           monto_total: number | null
           pagadas: number | null
@@ -751,6 +901,7 @@ export type Database = {
         | "equipamiento"
         | "federacion"
         | "otro"
+      estado_acuerdo: "activo" | "cancelado"
       estado_comprobante: "pendiente" | "aceptado" | "rechazado"
       estado_evento: "activo" | "cancelado"
       estado_miembro: "activo" | "lesionado" | "retirado"
@@ -761,6 +912,7 @@ export type Database = {
         | "conciliacion"
         | "regla"
         | "egreso"
+        | "acuerdo_pago"
       origen_aplicacion: "propuesta" | "manual" | "saldo_a_favor"
       rol: "administrativo" | "tesorero" | "jugador"
       tipo_bitacora:
@@ -775,7 +927,9 @@ export type Database = {
         | "regla_conciliacion_cambiada"
         | "egreso_registrado"
         | "egreso_anulado"
+        | "acuerdo_pago_cambiado"
       tipo_cobro: "mensualidad" | "afiliacion" | "torneo" | "uniforme" | "otro"
+      tipo_recordatorio: "mensual" | "previo_vencimiento" | "acuerdo_pago"
       tipo_regla: "monto_exacto" | "evento_especifico" | "mas_antiguo_primero"
     }
     CompositeTypes: {
@@ -913,6 +1067,7 @@ export const Constants = {
         "federacion",
         "otro",
       ],
+      estado_acuerdo: ["activo", "cancelado"],
       estado_comprobante: ["pendiente", "aceptado", "rechazado"],
       estado_evento: ["activo", "cancelado"],
       estado_miembro: ["activo", "lesionado", "retirado"],
@@ -923,6 +1078,7 @@ export const Constants = {
         "conciliacion",
         "regla",
         "egreso",
+        "acuerdo_pago",
       ],
       origen_aplicacion: ["propuesta", "manual", "saldo_a_favor"],
       rol: ["administrativo", "tesorero", "jugador"],
@@ -938,8 +1094,10 @@ export const Constants = {
         "regla_conciliacion_cambiada",
         "egreso_registrado",
         "egreso_anulado",
+        "acuerdo_pago_cambiado",
       ],
       tipo_cobro: ["mensualidad", "afiliacion", "torneo", "uniforme", "otro"],
+      tipo_recordatorio: ["mensual", "previo_vencimiento", "acuerdo_pago"],
       tipo_regla: ["monto_exacto", "evento_especifico", "mas_antiguo_primero"],
     },
   },

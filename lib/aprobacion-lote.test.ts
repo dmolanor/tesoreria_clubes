@@ -15,6 +15,14 @@ describe("evaluarAprobableEnLote", () => {
     expect(evaluarAprobableEnLote({ ...base, propuesta })).toEqual({ aprobable: true })
   })
 
+  it("deja para revisión lo que la bandeja marcó con necesitaHumano, aunque la propuesta cuadre", () => {
+    const propuesta = { lineas: [{ obligacion_id: "o", monto_aplicado: 180_000, regla_aplicada: "r" }], sobrante: 0 }
+    expect(evaluarAprobableEnLote({ ...base, propuesta, revision: { requiere: true } })).toEqual({
+      aprobable: false,
+      motivo: "requiere_revision",
+    })
+  })
+
   it("deja para revisión un comprobante sin jugador identificado", () => {
     const propuesta = { lineas: [{ obligacion_id: "o", monto_aplicado: 180_000, regla_aplicada: "r" }], sobrante: 0 }
     expect(evaluarAprobableEnLote({ ...base, miembro_identificado: false, propuesta })).toEqual({ aprobable: false, motivo: "sin_miembro" })

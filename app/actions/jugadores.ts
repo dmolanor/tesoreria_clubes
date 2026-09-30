@@ -96,7 +96,7 @@ export async function importarJugadoresAction(_prev: ActionResult, formData: For
     if (filas.length === 0) throw new DomainError("El archivo no tiene filas de jugadores")
     const categorias = await categoriasDelClub(s.supabase, s.club_id)
     const invalidas = filas.filter((f) => !f.nombre.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.correo.trim()))
-    if (invalidas.length) throw new DomainError(`Fila inválida: ${invalidas[0].nombre || "(sin nombre)"} <${invalidas[0].correo}>`)
+    if (invalidas.length) throw new DomainError(`La fila ${invalidas[0].nombre || "(sin nombre)"} <${invalidas[0].correo}> no trae un nombre o un correo válidos`)
 
     const unicas = [...new Map(filas.map((f) => [f.correo.trim().toLowerCase(), f])).values()]
     const creados = check(
@@ -115,7 +115,7 @@ export async function importarJugadoresAction(_prev: ActionResult, formData: For
         .select("id"),
     )
     const n = creados?.length ?? 0
-    return `${n} jugadores creados; ${filas.length - n} omitidos porque su correo ya existía. Podrán entrar cuando les envíes la invitación desde el inicio.`
+    return `${n} jugadores creados y ${filas.length - n} omitidos porque su correo ya existía. Podrán entrar cuando les envíes la invitación desde el inicio.`
   })
 }
 

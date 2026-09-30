@@ -50,7 +50,7 @@ export function DemoLoginForm({ cuentas }: { cuentas: CuentaDemo[] }) {
             <NativeSelect id="demo-correo" name="correo" required>
               {cuentas.map((c) => (
                 <option key={c.correo} value={c.correo}>
-                  {c.nombre} — {c.etiqueta}
+                  {c.nombre} · {c.etiqueta}
                 </option>
               ))}
             </NativeSelect>

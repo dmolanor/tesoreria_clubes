@@ -6,7 +6,7 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 
 ## Decisiones que moldean el esquema
 
-- **10 tablas, sin tablas "por si acaso".** Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
+- **13 tablas, sin tablas "por si acaso".** A las 9 de v1 se sumaron `acuerdos_pago` y `cuotas_acuerdo` (planes de pago explícitos) `reglas_recordatorio` y `egresos` (salidas de plata para el cuadre mensual). Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
 - **`miembros` = persona dentro de un club** (reemplaza a `usuarios` + `roles_usuario` del diseño original). Los roles son un arreglo (`rol[]`): una persona puede ser jugadora y tesorera a la vez, que es un caso real desde el lanzamiento. El miembro existe *antes* de tener cuenta: se carga desde el Excel y `auth_user_id` se vincula solo, por correo, en su primer login con magic link. Una misma cuenta puede pertenecer a varios clubes (una fila por club).
 - **El saldo a favor se deriva, no se guarda.** `aplicaciones` registra qué parte de cada comprobante fue a qué obligación (reemplaza a `pagos_aplicados` + `saldo_a_favor`). El saldo a favor de un comprobante es su monto aceptado menos lo aplicado. Así no hay dos fuentes de verdad que sincronizar.
 - **En finanzas no se borra.** Una aplicación se *anula* (`anulada_en`, `anulada_motivo`). Cancelar un evento o prorratear anula aplicaciones, y el dinero vuelve solo al saldo a favor. Un egreso registrado por error también se anula (`anulado_en`) y deja de contar en el cuadre.
@@ -27,11 +27,14 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 | `reglas_conciliacion` | Motor configurable (ver `03-reconciliation-engine.md`): `tipo`, `parametros jsonb`, `prioridad`, `activa` | prioridad única (diferible, para reordenar); un solo `mas_antiguo_primero` por club, siempre activo y siempre de último |
 | `egresos` | Salida de plata de la cuenta del club: `fecha` (la usa la conciliación), `monto`, `concepto`, `categoria` (arriendo_cancha/arbitros/equipamiento/federacion/otro), `soporte_path` (factura o recibo en Storage, opcional), `creado_por`, `anulado_en` | no se edita ni se borra: se anula una vez; `fecha` no futura; el soporte vive en `{club_id}/egresos/` |
 | `conciliaciones` | Cierre mensual: `mes`, `saldo_inicial/final`, `total_aceptado` y `total_egresos` (snapshots calculados), `diferencia` (generada), `notas` | unique `(club_id, mes)` |
-| `bitacora` | Eventos de negocio: `tipo` (enum cerrado de 11 valores), `actor_id`, `objetivo_tipo/id`, `descripcion`, `metadata` | append-only (un trigger bloquea update/delete, incluso con service role); índice `(club_id, created_at desc, id desc)` para paginar por cursor |
+| `acuerdos_pago` | Plan de pagos pactado con un jugador para cubrir una obligación: `miembro_id`, `obligacion_id`, `notas`, `estado` (activo/cancelado) | unique `(club_id, id)`; FKs compuestas; un solo acuerdo activo por obligación (índice parcial); un trigger exige que el acuerdo y la deuda sean del mismo jugador |
+| `cuotas_acuerdo` | Cuotas del acuerdo: `numero`, `fecha`, `monto` | unique `(acuerdo_id, numero)`; en cascada con el acuerdo; un trigger bloquea cambios si el acuerdo está cancelado |
+| `reglas_recordatorio` | Recordatorios del tesorero: `tipo` (mensual/previo_vencimiento/acuerdo_pago), `dia_mes` o `dias_antes`, `canal` preferido | checks por tipo; escritura solo de tesorería; sin bitácora (es configuración) |
+| `bitacora` | Eventos de negocio: `tipo` (enum cerrado de 12 valores), `actor_id`, `objetivo_tipo/id`, `descripcion`, `metadata` | append-only (un trigger bloquea update/delete, incluso con service role); índice `(club_id, created_at desc, id desc)` para paginar por cursor |
 
 **Una sola cuenta bancaria por club.** Ni `conciliaciones` ni `egresos` distinguen cuentas: si un club llega a manejar varias, se agrega `cuenta` a ambas tablas y la conciliación pasa a ser por `(club_id, mes, cuenta)`.
 
-**Vistas** (`security_invoker`, respetan RLS): `estado_cuenta_miembros` (pendiente, vencido, próximo vencimiento, saldo a favor, estado al_dia/pendiente/mora) y `progreso_eventos` (pagadas/total, recaudado/total).
+**Vistas** (`security_invoker`, respetan RLS): `estado_cuenta_miembros` (pendiente, vencido, próximo vencimiento, saldo a favor, estado al_dia/pendiente/mora) y `progreso_eventos` (pagadas/total, recaudado/total, `con_acuerdo`: obligaciones impagas con acuerdo activo).
 
 ## Autorización
 
@@ -39,7 +42,7 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 - **Los roles se leen de `miembros.roles` en cada consulta, nunca del JWT**: quitarle un rol a alguien aplica de inmediato.
 - **Grants por columna**: el jugador inserta sus comprobantes pero no puede tocar `estado`; nadie escribe `obligaciones.pagado`, `total_aceptado`, `total_egresos` ni la bitácora por API. De un egreso solo se actualiza `anulado_en`.
 - **Triggers para lo que RLS no expresa**: `revisado_por` y `creado_por` los fija la base (no se pueden suplantar), validaciones de aplicaciones, FIFO siempre último, club nunca sin admin.
-- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia, **registra y anula egresos** y **es el único que configura reglas**. El administrador crea y cancela eventos y gestiona jugadores, y lee reglas, egresos y conciliación. El jugador no ve egresos. La bitácora la leen tesorería y administración.
+- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia, **registra y anula egresos**, registra acuerdos de pago y **es el único que configura reglas**. El jugador ve sus propios acuerdos pero no los crea ni los edita (tampoco el bot de WhatsApp: solo los consulta). El administrador crea y cancela eventos y gestiona jugadores, y lee reglas, acuerdos, egresos y conciliación. El jugador no ve egresos. La bitácora la leen tesorería y administración.
 - **Storage:** bucket privado `comprobantes`, ruta `{club_id}/{miembro_id}/{archivo}`. Cada jugador sube y lee su carpeta; tesorería y administración leen la del club. Los soportes de egresos van al mismo bucket en `{club_id}/egresos/{archivo}`: solo tesorería sube ahí, y tesorería y administración los leen con la misma política de lectura del club (un jugador no, porque `egresos` no es un id de miembro). Nadie edita ni borra archivos.
 
 Pruebas: `supabase/tests/rls.sql` (tres bloques: RLS general, Storage y prorrateo, egresos y cuadre; se ejecutan como postgres y se revierten solos).
@@ -76,7 +79,7 @@ Solo eventos significativos, nunca lecturas. Registrar y anular un egreso son ev
 ## Fases siguientes (sin tablas vacías hoy)
 
 - **Correos (fase 5):** tabla `notificaciones` como outbox, con unique por tipo + objetivo + miembro para no duplicar recordatorios.
-- **WhatsApp + OCR (fase 6):** no requiere tablas. Usa `comprobantes.canal = 'whatsapp'`, `origen_ref` (id del mensaje), `extraccion` y `miembros.telefono`.
+- **WhatsApp + OCR (fase 6):** no requiere tablas. Usa `comprobantes.canal = 'whatsapp'`, `origen_ref` (id del mensaje), `extraccion` y `miembros.telefono`. El bot consulta acuerdos de pago con permiso de lectura; la RLS (escritura solo de tesorería) ya le impide crearlos.
 - **Wompi (fase 7):** columna `comision` en `comprobantes` y un webhook idempotente por `origen_ref`.
 - **Alta de clubes nuevos:** no requiere tablas.
 

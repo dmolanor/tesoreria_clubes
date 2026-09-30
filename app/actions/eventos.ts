@@ -31,7 +31,7 @@ export async function crearEventoAction(_prev: ActionResult, formData: FormData)
       }),
     )
     const { count } = await s.supabase.from("obligaciones").select("id", { count: "exact", head: true }).eq("evento_id", eventoId ?? "")
-    return `Evento creado — ${count ?? 0} jugadores ya lo ven en su estado de cuenta`
+    return `Evento creado. ${count ?? 0} jugadores ya lo ven en su estado de cuenta`
   })
 }
 
@@ -55,6 +55,6 @@ export async function cancelarEventoAction(id: string): Promise<ActionResult> {
   return runAction(async () => {
     const s = await requireRole("administrativo")
     check(await s.supabase.rpc("cancelar_evento", { p_evento_id: id }))
-    return "Evento cancelado — lo pagado quedó como saldo a favor"
+    return "Evento cancelado. Lo pagado quedó como saldo a favor"
   })
 }

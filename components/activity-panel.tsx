@@ -21,6 +21,7 @@ const TIPO_LABEL: Record<TipoBitacora, string> = {
   regla_conciliacion_cambiada: "Regla cambiada",
   egreso_registrado: "Egreso registrado",
   egreso_anulado: "Egreso anulado",
+  acuerdo_pago_cambiado: "Acuerdo de pago",
 }
 
 /**

@@ -5,9 +5,10 @@ import type { Proposal } from "@/lib/engine/types"
  * sin mirarlo: el desglose sigue siendo el que propone el motor de reglas del club, sin cambios.
  */
 
-export type MotivoRevision = "sin_miembro" | "sin_propuesta" | "saldo_a_favor" | "monto_sin_aplicar"
+export type MotivoRevision = "requiere_revision" | "sin_miembro" | "sin_propuesta" | "saldo_a_favor" | "monto_sin_aplicar"
 
 export const MOTIVO_REVISION: Record<MotivoRevision, string> = {
+  requiere_revision: "la bandeja lo marcó para revisión",
   sin_miembro: "no se sabe de qué jugador es",
   sin_propuesta: "el motor no lo aplicó a ninguna deuda",
   saldo_a_favor: "dejaría saldo a favor",
@@ -21,9 +22,16 @@ const centavos = (n: number) => Math.round(n * 100)
 /**
  * Un comprobante es aprobable en lote solo si la propuesta del motor lo cubre completo:
  * jugador identificado, al menos una línea a una deuda, nada a saldo a favor y la suma de
- * líneas igual al monto. Cualquier otra cosa queda para revisión manual en Comprobantes.
+ * líneas igual al monto. Tampoco entra lo que la bandeja marcó con `necesitaHumano`.
+ * Cualquier otra cosa queda para revisión manual en Comprobantes.
  */
-export function evaluarAprobableEnLote(c: { miembro_identificado: boolean; monto: number; propuesta: Proposal }): Aprobable {
+export function evaluarAprobableEnLote(c: {
+  miembro_identificado: boolean
+  monto: number
+  propuesta: Proposal
+  revision?: { requiere: boolean }
+}): Aprobable {
+  if (c.revision?.requiere) return { aprobable: false, motivo: "requiere_revision" }
   if (!c.miembro_identificado) return { aprobable: false, motivo: "sin_miembro" }
   const aDeudas = c.propuesta.lineas.filter((l) => l.obligacion_id && l.monto_aplicado > 0)
   if (c.monto <= 0 || aDeudas.length === 0) return { aprobable: false, motivo: "sin_propuesta" }

@@ -27,14 +27,14 @@ export function DemoSwitcher({ users, currentId }: { users: { destacados: DemoUs
         <optgroup label="Roles especiales">
           {users.destacados.map((u) => (
             <option key={u.id} value={u.id}>
-              {u.nombre} — {u.etiqueta}
+              {u.nombre} · {u.etiqueta}
             </option>
           ))}
         </optgroup>
         <optgroup label="Jugadores">
           {users.resto.map((u) => (
             <option key={u.id} value={u.id}>
-              {u.nombre} — {u.etiqueta}
+              {u.nombre} · {u.etiqueta}
             </option>
           ))}
         </optgroup>

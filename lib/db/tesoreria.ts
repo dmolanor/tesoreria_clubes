@@ -2,6 +2,7 @@ import "server-only"
 import type { Supabase } from "@/lib/supabase/server"
 import { proposeAllocation } from "@/lib/engine/propose"
 import type { EngineRule, PendingObligation, Proposal } from "@/lib/engine/types"
+import { necesitaHumano } from "@/lib/revision"
 import type { Json } from "@/lib/data/database.types"
 import { cuadraConPendientes, diferenciaConPendientes } from "@/lib/aprobacion-lote"
 import { cuadreMes } from "@/lib/cuadre"
@@ -64,15 +65,20 @@ export interface ComprobantePendiente {
   fecha_pago: string
   created_at: string
   archivo_path: string | null
+  canal: string
   propuesta: Proposal
   pendientes: PendienteConEvento[]
+  revision: { requiere: boolean; motivos: string[] }
 }
 
-/** Bandeja del tesorero: comprobantes pendientes con la propuesta del motor ya calculada. */
+/**
+ * Bandeja del tesorero: comprobantes pendientes con la propuesta del motor ya
+ * calculada. Los que requieren revisión humana van primero.
+ */
 export async function bandeja(sb: Supabase, clubId: string, filtro?: { id?: string }): Promise<ComprobantePendiente[]> {
   let q = sb
     .from("comprobantes")
-    .select("id, miembro_id, monto, fecha_pago, created_at, archivo_path, miembros!comprobantes_club_id_miembro_id_fkey(nombre)")
+    .select("id, miembro_id, monto, fecha_pago, created_at, archivo_path, canal, extraccion, miembros!comprobantes_club_id_miembro_id_fkey(nombre)")
     .eq("club_id", clubId)
     .eq("estado", "pendiente")
     .order("created_at")
@@ -84,21 +90,26 @@ export async function bandeja(sb: Supabase, clubId: string, filtro?: { id?: stri
     pendientesPorMiembro(sb, [...new Set(comps.map((c) => c.miembro_id))]),
     reglasDelClub(sb, clubId).then(comoReglasMotor),
   ])
-  return comps.map((c) => {
-    const pend = pendientes.get(c.miembro_id) ?? []
-    return {
-      id: c.id,
-      miembro_id: c.miembro_id,
-      miembro: c.miembros?.nombre ?? "?",
-      miembro_identificado: !!c.miembro_id && !!c.miembros,
-      monto: Number(c.monto),
-      fecha_pago: c.fecha_pago,
-      created_at: c.created_at,
-      archivo_path: c.archivo_path,
-      pendientes: pend,
-      propuesta: proposeAllocation({ monto: Number(c.monto), pendientes: pend, reglas }),
-    }
-  })
+  return comps
+    .map((c) => {
+      const pend = pendientes.get(c.miembro_id) ?? []
+      const propuesta = proposeAllocation({ monto: Number(c.monto), pendientes: pend, reglas })
+      return {
+        id: c.id,
+        miembro_id: c.miembro_id,
+        miembro: c.miembros?.nombre ?? "?",
+        miembro_identificado: !!c.miembro_id && !!c.miembros,
+        monto: Number(c.monto),
+        fecha_pago: c.fecha_pago,
+        created_at: c.created_at,
+        archivo_path: c.archivo_path,
+        canal: c.canal,
+        pendientes: pend,
+        propuesta,
+        revision: necesitaHumano({ pendientes: pend.length, propuesta, canal: c.canal, extraccion: c.extraccion }),
+      }
+    })
+    .sort((a, b) => Number(b.revision.requiere) - Number(a.revision.requiere) || a.created_at.localeCompare(b.created_at))
 }
 
 /** Líneas para la RPC `aceptar_comprobante` (el sobrante no se envía: queda como saldo a favor). */
