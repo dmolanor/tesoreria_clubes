@@ -62,13 +62,16 @@ export function CalendarioPagos({ año, meses, hoy = hoyISO() }: { año: number;
             </div>
             <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
-                <Punto estado="pagado" /> Pagado
+                <span aria-hidden="true"><Punto estado="pagado" /></span>
+                Pagado
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <Punto estado="pendiente" /> Pendiente
+                <span aria-hidden="true"><Punto estado="pendiente" /></span>
+                Pendiente
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <Punto estado="estimado" /> Estimado
+                <span aria-hidden="true"><Punto estado="estimado" /></span>
+                Estimado
               </span>
             </p>
           </>
