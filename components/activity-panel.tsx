@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react"
 import { ChevronDown } from "lucide-react"
 import { actoresBitacora, cargarBitacora, type BitacoraItem } from "@/app/actions/bitacora"
-import { TIPOS_BITACORA, type TipoBitacora } from "@/lib/data/types"
+import { TIPOS_BITACORA, type TipoBitacora } from "@/lib/db/types"
 import { Button } from "@/components/ui/button"
 import { NativeSelect } from "@/components/native-select"
 import { Input } from "@/components/ui/input"

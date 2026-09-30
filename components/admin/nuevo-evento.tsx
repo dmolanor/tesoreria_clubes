@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { NativeSelect } from "@/components/native-select"
 import { ActionForm } from "@/components/action-form"
 import { crearEventoAction } from "@/app/actions/eventos"
-import type { Alcance } from "@/lib/data/types"
+import { TIPO_COBRO_LABEL, type AlcanceCobro as Alcance, type TipoCobro } from "@/lib/db/types"
 
 export interface JugadorOpcion {
   id: string
@@ -17,7 +17,7 @@ export interface JugadorOpcion {
   categoria: string | null
 }
 
-export function NuevoEvento({ jugadores }: { jugadores: JugadorOpcion[] }) {
+export function NuevoEvento({ jugadores, categorias }: { jugadores: JugadorOpcion[]; categorias: string[] }) {
   const [open, setOpen] = useState(false)
   const [alcance, setAlcance] = useState<Alcance>("todos")
   const [filtro, setFiltro] = useState("")
@@ -42,6 +42,16 @@ export function NuevoEvento({ jugadores }: { jugadores: JugadorOpcion[] }) {
                 <Label htmlFor="nombre">Nombre</Label>
                 <Input id="nombre" name="nombre" required placeholder="Mensualidad octubre · Élite" />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="tipo">Tipo</Label>
+                <NativeSelect id="tipo" name="tipo" defaultValue="mensualidad">
+                  {(Object.keys(TIPO_COBRO_LABEL) as TipoCobro[]).map((t) => (
+                    <option key={t} value={t}>
+                      {TIPO_COBRO_LABEL[t]}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="monto">Monto por jugador</Label>
@@ -64,8 +74,9 @@ export function NuevoEvento({ jugadores }: { jugadores: JugadorOpcion[] }) {
                 </div>
                 {alcance === "grupo" ? (
                   <NativeSelect name="categoria" aria-label="Categoría">
-                    <option>Élite</option>
-                    <option>Junior</option>
+                    {categorias.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
                   </NativeSelect>
                 ) : null}
                 {alcance === "individual" ? (

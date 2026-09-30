@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import type { EstadoCuenta } from "@/lib/domain/ledger"
+import type { EstadoCuenta } from "@/lib/db/types"
 
 // Lenguaje de DESIGN.md: forma + un acento. Relleno teal = al día,
 // contorno punteado = pendiente/atención, relleno ámbar = mora, vacío = inactivo.

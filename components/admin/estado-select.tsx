@@ -4,7 +4,7 @@ import { useTransition } from "react"
 import { toast } from "sonner"
 import { NativeSelect } from "@/components/native-select"
 import { cambiarEstadoAction } from "@/app/actions/jugadores"
-import type { EstadoJugador } from "@/lib/data/types"
+import type { EstadoMiembro as EstadoJugador } from "@/lib/db/types"
 
 export function EstadoSelect({ usuarioId, estado }: { usuarioId: string; estado: EstadoJugador }) {
   const [pending, start] = useTransition()

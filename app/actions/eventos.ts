@@ -1,43 +1,51 @@
 "use server"
 
-import { getStore } from "@/lib/data"
-import { ctxFrom, requireRole } from "@/lib/auth/session"
-import { runAction, type ActionResult } from "@/lib/action-result"
-import { cancelarEvento, crearEvento, editarEvento, DomainError } from "@/lib/domain/ledger"
+import { requireRole } from "@/lib/auth/session"
+import { check, runAction, DomainError, type ActionResult } from "@/lib/action-result"
 import { parseMonto } from "@/lib/format"
-import type { Alcance } from "@/lib/data/types"
+import type { AlcanceCobro, TipoCobro } from "@/lib/db/types"
 
 export async function crearEventoAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   return runAction(async () => {
     const s = await requireRole("administrativo")
-    const alcance = String(formData.get("alcance")) as Alcance
-    let alcance_valor: string | null = null
-    if (alcance === "grupo") alcance_valor = String(formData.get("categoria"))
-    if (alcance === "individual") alcance_valor = formData.getAll("jugadores").map(String).join(",")
+    const alcance = String(formData.get("alcance")) as AlcanceCobro
     const fecha_limite = String(formData.get("fecha_limite") ?? "")
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha_limite)) throw new DomainError("Elige la fecha límite")
-    const n = await getStore().transaction((db) => {
-      const id = crearEvento(db, ctxFrom(s), {
-        nombre: String(formData.get("nombre") ?? ""),
-        monto: parseMonto(formData.get("monto")),
-        fecha_limite,
-        alcance,
-        alcance_valor,
-      })
-      return db.obligaciones.filter((o) => o.evento_cobro_id === id).length
-    })
-    return `Evento creado — ${n} jugadores ya lo ven en su estado de cuenta`
+    const nombre = String(formData.get("nombre") ?? "").trim()
+    if (!nombre) throw new DomainError("El evento necesita un nombre")
+    const monto = parseMonto(formData.get("monto"))
+    if (monto <= 0) throw new DomainError("El monto debe ser mayor a 0")
+    const miembros = formData.getAll("jugadores").map(String)
+    if (alcance === "individual" && miembros.length === 0) throw new DomainError("Elige al menos un jugador")
+
+    const eventoId = check(
+      await s.supabase.rpc("crear_evento", {
+        p_club_id: s.club_id,
+        p_nombre: nombre,
+        p_tipo: String(formData.get("tipo") ?? "otro") as TipoCobro,
+        p_monto: monto,
+        p_fecha_limite: fecha_limite,
+        p_alcance: alcance,
+        p_categoria: alcance === "grupo" ? String(formData.get("categoria")) : undefined,
+        p_miembro_ids: alcance === "individual" ? miembros : undefined,
+      }),
+    )
+    const { count } = await s.supabase.from("obligaciones").select("id", { count: "exact", head: true }).eq("evento_id", eventoId ?? "")
+    return `Evento creado — ${count ?? 0} jugadores ya lo ven en su estado de cuenta`
   })
 }
 
 export async function editarEventoAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   return runAction(async () => {
     const s = await requireRole("administrativo")
-    await getStore().transaction((db) =>
-      editarEvento(db, ctxFrom(s), String(formData.get("id")), {
-        nombre: String(formData.get("nombre") ?? ""),
-        fecha_limite: String(formData.get("fecha_limite") ?? ""),
-      }),
+    const nombre = String(formData.get("nombre") ?? "").trim()
+    if (!nombre) throw new DomainError("El evento necesita un nombre")
+    // Monto y alcance no se editan (no hay grant): cambiarían deudas con pagos ya aplicados.
+    check(
+      await s.supabase
+        .from("eventos_cobro")
+        .update({ nombre, fecha_limite: String(formData.get("fecha_limite")) })
+        .eq("id", String(formData.get("id"))),
     )
     return "Evento actualizado"
   })
@@ -46,7 +54,7 @@ export async function editarEventoAction(_prev: ActionResult, formData: FormData
 export async function cancelarEventoAction(id: string): Promise<ActionResult> {
   return runAction(async () => {
     const s = await requireRole("administrativo")
-    await getStore().transaction((db) => cancelarEvento(db, ctxFrom(s), id))
-    return "Evento cancelado"
+    check(await s.supabase.rpc("cancelar_evento", { p_evento_id: id }))
+    return "Evento cancelado — lo pagado quedó como saldo a favor"
   })
 }

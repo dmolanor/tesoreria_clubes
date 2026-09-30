@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { ActionForm } from "@/components/action-form"
 import { subirComprobanteAction } from "@/app/actions/comprobantes"
 
-export function SubirComprobante({ sugerido }: { sugerido?: number }) {
+export function SubirComprobante({ sugerido, hoy }: { sugerido?: number; hoy: string }) {
   const [open, setOpen] = useState(false)
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -32,6 +32,10 @@ export function SubirComprobante({ sugerido }: { sugerido?: number }) {
               <div className="space-y-1.5">
                 <Label htmlFor="monto">Monto transferido (COP)</Label>
                 <Input id="monto" name="monto" inputMode="numeric" required placeholder={sugerido ? String(sugerido) : "180000"} autoComplete="off" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fecha_pago">Fecha de la transferencia</Label>
+                <Input id="fecha_pago" name="fecha_pago" type="date" required defaultValue={hoy} max={hoy} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="archivo">Foto o PDF del comprobante</Label>

@@ -3,7 +3,7 @@
 import { useTransition } from "react"
 import { toast } from "sonner"
 import { setRolAction } from "@/app/actions/jugadores"
-import type { Rol } from "@/lib/data/types"
+import type { Rol } from "@/lib/db/types"
 
 const ROLES: Array<{ rol: Rol; label: string }> = [
   { rol: "jugador", label: "Jugador" },

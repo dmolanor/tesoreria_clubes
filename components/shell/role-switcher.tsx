@@ -2,7 +2,7 @@
 
 import { useTransition } from "react"
 import { cambiarRol } from "@/app/actions/session"
-import type { Rol } from "@/lib/data/types"
+import type { Rol } from "@/lib/db/types"
 import { cn } from "@/lib/utils"
 
 const LABEL: Record<Rol, string> = { jugador: "Jugador", tesorero: "Tesorero", administrativo: "Admin" }
