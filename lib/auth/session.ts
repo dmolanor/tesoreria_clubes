@@ -1,19 +1,16 @@
 import "server-only"
 import { cookies } from "next/headers"
-import { getStore } from "@/lib/data"
-import type { Rol, Usuario } from "@/lib/data/types"
-import { DEMO_IDS } from "@/lib/data/seed"
-import type { Ctx } from "@/lib/domain/ledger"
+import { redirect } from "next/navigation"
+import { createClient, type Supabase } from "@/lib/supabase/server"
+import type { Miembro, Rol } from "@/lib/db/types"
 
-// Sustituto del login mientras no hay Supabase Auth. Hoy la identidad sale de
-// una cookie que se cambia con "Actuar como…"; mañana `getSession` leerá
-// `auth.uid()` y el resto de la app no cambia. Los roles SIEMPRE se resuelven
-// contra `roles_usuario` (nunca contra algo embebido en la cookie), igual que RLS.
+// Identidad = sesión de Supabase Auth (magic link o cuenta demo). Los roles se leen de
+// `miembros.roles` en cada request, igual que RLS: nunca del JWT.
 
-export const DEV_USER_COOKIE = "dev_user_id"
 export const ROL_COOKIE = "rol_activo"
+export const CLUB_COOKIE = "club_activo"
 
-export const AUTH_MODE = process.env.AUTH_MODE ?? "dev"
+export const DEMO_MODE = process.env.DEMO_MODE === "on"
 
 export const ROL_HOME: Record<Rol, string> = {
   jugador: "/jugador",
@@ -28,38 +25,56 @@ export const ROL_LABEL: Record<Rol, string> = {
 }
 
 export interface Session {
-  usuario: Usuario
+  supabase: Supabase
+  userId: string
+  usuario: Miembro // el miembro del usuario en el club activo
   club_id: string
+  clubNombre: string
   roles: Rol[]
   rolActivo: Rol
 }
 
 export class ForbiddenError extends Error {}
 
+const ORDEN: Rol[] = ["tesorero", "administrativo", "jugador"]
+
+/** Devuelve la sesión o redirige: sin login → /login; sin membresía activa → /sin-acceso. */
 export async function getSession(): Promise<Session> {
-  if (AUTH_MODE !== "dev") throw new Error(`AUTH_MODE=${AUTH_MODE} aún no está implementado`)
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getClaims()
+  const userId = data?.claims?.sub
+  if (!userId) redirect("/login")
+
+  const { data: miembros, error } = await supabase
+    .from("miembros")
+    .select("*, clubes(nombre)")
+    .eq("auth_user_id", userId)
+    .neq("estado", "retirado")
+  if (error) throw error
+  if (!miembros?.length) redirect("/sin-acceso")
+
   const jar = await cookies()
-  const db = await getStore().read()
-  const userId = jar.get(DEV_USER_COOKIE)?.value ?? DEMO_IDS.tesorera
-  const usuario = db.usuarios.find((u) => u.id === userId) ?? db.usuarios.find((u) => u.id === DEMO_IDS.tesorera)!
-  const orden: Rol[] = ["tesorero", "administrativo", "jugador"]
-  const roles = orden.filter((rol) =>
-    db.roles_usuario.some((r) => r.usuario_id === usuario.id && r.club_id === usuario.club_id && r.rol === rol && r.activo),
-  )
-  const pedido = jar.get(ROL_COOKIE)?.value as Rol | undefined
-  const rolActivo = pedido && roles.includes(pedido) ? pedido : roles[0]
-  return { usuario, club_id: usuario.club_id, roles, rolActivo }
+  const pedido = jar.get(CLUB_COOKIE)?.value
+  const m = miembros.find((x) => x.club_id === pedido) ?? miembros[0]
+  const roles = ORDEN.filter((r) => m.roles.includes(r))
+  const rolPedido = jar.get(ROL_COOKIE)?.value as Rol | undefined
+  const { clubes, ...usuario } = m
+  return {
+    supabase,
+    userId,
+    usuario,
+    club_id: m.club_id,
+    clubNombre: clubes?.nombre ?? "Club",
+    roles,
+    rolActivo: rolPedido && roles.includes(rolPedido) ? rolPedido : roles[0],
+  }
 }
 
-/** Autorización para server actions y páginas: la persona debe tener alguno de los roles. */
+/** Para server actions: la persona debe tener alguno de los roles (RLS lo vuelve a verificar). */
 export async function requireRole(...permitidos: Rol[]): Promise<Session> {
   const s = await getSession()
   if (!permitidos.some((r) => s.roles.includes(r))) {
     throw new ForbiddenError(`Esta acción requiere el rol ${permitidos.map((r) => ROL_LABEL[r]).join(" o ")}`)
   }
   return s
-}
-
-export function ctxFrom(s: Session): Ctx {
-  return { club_id: s.club_id, actor_id: s.usuario.id, now: new Date().toISOString(), newId: () => crypto.randomUUID() }
 }

@@ -9,13 +9,15 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "seed": "tsx --tsconfig tsconfig.json scripts/seed.ts",
     "share": "bash scripts/share.sh prod",
     "share:dev": "bash scripts/share.sh dev",
     "seed:sql": "tsx --tsconfig tsconfig.json scripts/generate-seed-sql.ts",
-    "seed:supabase": "npm run seed:sql && tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seed-supabase.ts"
+    "seed:supabase": "npm run seed:sql && tsx --env-file-if-exists=.env --env-file-if-exists=.env.local --tsconfig tsconfig.json scripts/seed-supabase.ts && npm run demo:cuentas",
+    "demo:cuentas": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/crear-cuentas-demo.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.109.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "exceljs": "^4.4.0",
@@ -44,5 +46,8 @@
     "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
