@@ -5,6 +5,7 @@ import type { EventoCobro } from "./types"
 export interface Progreso {
   total: number
   pagadas: number
+  con_acuerdo: number
   recaudado: number
   monto_total: number
 }
@@ -15,7 +16,13 @@ export async function progresoEventos(sb: Supabase, clubId: string) {
   return new Map(
     (data ?? []).map((p) => [
       p.evento_id!,
-      { total: p.total ?? 0, pagadas: p.pagadas ?? 0, recaudado: Number(p.recaudado ?? 0), monto_total: Number(p.monto_total ?? 0) } satisfies Progreso,
+      {
+        total: p.total ?? 0,
+        pagadas: p.pagadas ?? 0,
+        con_acuerdo: p.con_acuerdo ?? 0,
+        recaudado: Number(p.recaudado ?? 0),
+        monto_total: Number(p.monto_total ?? 0),
+      } satisfies Progreso,
     ]),
   )
 }

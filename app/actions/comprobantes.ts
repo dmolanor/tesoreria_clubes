@@ -88,7 +88,7 @@ export async function rechazarAction(_prev: ActionResult, formData: FormData): P
   return runAction(async () => {
     const s = await requireRole("tesorero")
     const motivo = String(formData.get("motivo") ?? "").trim()
-    if (!motivo) throw new DomainError("Escribe el motivo del rechazo — el jugador lo verá")
+    if (!motivo) throw new DomainError("Escribe el motivo del rechazo. El jugador lo verá")
     const filas = check(
       await s.supabase
         .from("comprobantes")
@@ -98,6 +98,6 @@ export async function rechazarAction(_prev: ActionResult, formData: FormData): P
         .select("id"),
     )
     if (!filas?.length) throw new DomainError("Este comprobante ya fue revisado")
-    return "Comprobante rechazado — el jugador verá el motivo"
+    return "Comprobante rechazado. El jugador verá el motivo"
   })
 }

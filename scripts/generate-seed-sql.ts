@@ -5,7 +5,7 @@
 
 import { promises as fs } from "node:fs"
 import path from "node:path"
-import { buildSeed } from "./demo/seed"
+import { buildSeed, DEMO_IDS } from "./demo/seed"
 import { diaLocal } from "../lib/format"
 import type { Db, EventoCobro } from "./demo/types"
 
@@ -67,13 +67,38 @@ export function seedSql(db: Db): string {
 
   const objetivo: Record<string, string> = { usuario: "miembro" }
 
+  // Tres acuerdos de pago demo: jugadores activos con deudas sin pagar, de la más reciente primero.
+  const nombreEvento = new Map(db.eventos_cobro.map((e) => [e.id, e]))
+  const limiteDe = (eventoId: string) => nombreEvento.get(eventoId)!.fecha_limite
+  const especiales = new Set(Object.values(DEMO_IDS))
+  const activos = new Set(db.usuarios.filter((u) => u.estado === "activo" && !especiales.has(u.id)).map((u) => u.id))
+  const candidatas = db.obligaciones
+    .filter((o) => o.estado !== "pagado" && activos.has(o.usuario_id))
+    .sort((a, b) => limiteDe(b.evento_cobro_id).localeCompare(limiteDe(a.evento_cobro_id)))
+  const elegidas = [...new Map(candidatas.map((o) => [o.usuario_id, o])).values()].slice(0, 3)
+  const nombreUsuario = new Map(db.usuarios.map((u) => [u.id, u.nombre]))
+  const tesoreraId = DEMO_IDS.tesorera
+  const acuerdos = elegidas.map((o, i) => {
+    const id = `00000000-0000-4000-8000-a0000000000${i + 1}`
+    const fechas = ["2026-10-05", "2026-10-15", "2026-10-25"].slice(0, i === 0 ? 3 : 2)
+    const base = Math.floor(o.monto / fechas.length)
+    const cuotas = fechas.map((fecha, j) => ({
+      id: `00000000-0000-4000-8000-b000000000${i}${j}`,
+      numero: j + 1,
+      fecha,
+      monto: j === fechas.length - 1 ? o.monto - base * (fechas.length - 1) : base,
+    }))
+    return { id, obligacion: o, created_at: `2026-09-${20 + i}T15:00:00.000Z`, cuotas }
+  })
+
   let sql = `-- Generado por scripts/generate-seed-sql.ts — no editar a mano.
 -- Datos demo: Raza Ultimate, ~48 jugadores, historial jul–sep 2026.
 begin;
 select set_config('app.seed', 'on', true);  -- la bitácora se copia del seed, sin duplicar por triggers
 
-truncate public.bitacora, public.aplicaciones, public.conciliaciones, public.comprobantes,
-  public.obligaciones, public.reglas_conciliacion, public.eventos_cobro, public.miembros, public.clubes
+truncate public.bitacora, public.cuotas_acuerdo, public.acuerdos_pago, public.aplicaciones,
+  public.conciliaciones, public.comprobantes, public.obligaciones, public.reglas_conciliacion,
+  public.eventos_cobro, public.miembros, public.clubes
   restart identity cascade;
 
 `
@@ -101,6 +126,18 @@ truncate public.bitacora, public.aplicaciones, public.conciliaciones, public.com
     ["id", "club_id", "evento_id", "miembro_id", "monto", "created_at"],
     db.obligaciones.map((o) => [o.id, club.id, o.evento_cobro_id, o.usuario_id, o.monto, o.created_at]),
   )
+  if (acuerdos.length) {
+    sql += insert(
+      "acuerdos_pago",
+      ["id", "club_id", "miembro_id", "obligacion_id", "notas", "creado_por", "created_at"],
+      acuerdos.map((a) => [a.id, club.id, a.obligacion.usuario_id, a.obligacion.id, "Acuerdo demo", tesoreraId, a.created_at]),
+    )
+    sql += insert(
+      "cuotas_acuerdo",
+      ["id", "club_id", "acuerdo_id", "numero", "fecha", "monto", "created_at"],
+      acuerdos.flatMap((a) => a.cuotas.map((c) => [c.id, club.id, a.id, c.numero, c.fecha, c.monto, a.created_at])),
+    )
+  }
   sql += insert(
     "comprobantes",
     ["id", "club_id", "miembro_id", "monto", "fecha_pago", "canal", "estado", "motivo_rechazo", "revisado_por", "revisado_en", "created_at"],
@@ -118,12 +155,29 @@ truncate public.bitacora, public.aplicaciones, public.conciliaciones, public.com
     ["id", "club_id", "mes", "saldo_inicial", "saldo_final", "notas", "creado_por", "created_at"],
     db.conciliaciones.map((c) => [c.id, c.club_id, c.mes, c.saldo_inicial, c.saldo_final, c.notas, c.creado_por, c.created_at]),
   )
+  const bitacoraAcuerdos: Val[][] = acuerdos.map((a) => {
+    const evento = nombreEvento.get(a.obligacion.evento_cobro_id)!
+    const total = a.cuotas.reduce((s, c) => s + c.monto, 0)
+    return [
+      club.id,
+      "acuerdo_pago_cambiado",
+      tesoreraId,
+      "acuerdo_pago",
+      a.id,
+      `Laura Gómez registró el acuerdo de pago de ${nombreUsuario.get(a.obligacion.usuario_id)} ($${total.toLocaleString("es-CO")} en ${a.cuotas.length} cuotas, para "${evento.nombre}")`,
+      { accion: "registró", total, cuotas: a.cuotas.length },
+      a.created_at,
+    ]
+  })
   sql += insert(
     "bitacora",
     ["club_id", "tipo", "actor_id", "objetivo_tipo", "objetivo_id", "descripcion", "metadata", "created_at"],
-    [...db.bitacora]
-      .sort((a, b) => a.created_at.localeCompare(b.created_at))
-      .map((b) => [b.club_id, b.tipo, b.actor_id, objetivo[b.objetivo_tipo] ?? b.objetivo_tipo, b.objetivo_id, b.descripcion, b.metadata, b.created_at]),
+    [
+      ...[...db.bitacora]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((b) => [b.club_id, b.tipo, b.actor_id, objetivo[b.objetivo_tipo] ?? b.objetivo_tipo, b.objetivo_id, b.descripcion, b.metadata, b.created_at] as Val[]),
+      ...bitacoraAcuerdos,
+    ],
   )
   sql += "commit;\n"
   return sql

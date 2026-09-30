@@ -10,10 +10,12 @@ export function PendientesList({
   items,
   reglas,
   limit,
+  hideMore,
 }: {
   items: ComprobantePendiente[]
   reglas: Map<string, string>
   limit?: number
+  hideMore?: boolean
 }) {
   if (items.length === 0) return <p className="text-muted-foreground">No hay comprobantes por revisar.</p>
   const visibles = limit ? items.slice(0, limit) : items
@@ -31,7 +33,11 @@ export function PendientesList({
               </p>
               <p className="text-[13px] text-muted-foreground">
                 Pagó el {formatFecha(c.fecha_pago)} · subido el {formatFecha(c.created_at)}
+                {c.canal !== "manual" ? ` · por ${c.canal === "whatsapp" ? "WhatsApp" : "Wompi"}` : ""}
               </p>
+              {c.revision.requiere ? (
+                <p className="mt-0.5 text-[13px] font-medium text-warn">Requiere tu revisión ({c.revision.motivos.join(" · ")})</p>
+              ) : null}
               <ul className="mt-1 space-y-0.5 text-[13px]">
                 {c.propuesta.lineas.map((l, i) => (
                   <li key={i}>
@@ -52,7 +58,7 @@ export function PendientesList({
           </li>
         )
       })}
-      {limit && items.length > limit ? (
+      {limit && items.length > limit && !hideMore ? (
         <li className="pt-3 text-[13px]">
           <Link href="/tesorero/comprobantes" className="underline underline-offset-2">
             Ver los {items.length} pendientes

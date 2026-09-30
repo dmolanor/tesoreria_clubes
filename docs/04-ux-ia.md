@@ -10,7 +10,7 @@ Cuando una persona tiene más de un rol activo (`miembros.roles`), un selector t
 
 **Jugador:** Inicio (única vista real — no necesita más pestañas).
 
-**Tesorero:** Comprobantes pendientes · Conciliación mensual · Jugadores en mora · (Configuración de reglas, accesible desde un ícono de ajustes, no como pestaña principal — es infrecuente).
+**Tesorero:** Inicio · Comprobantes pendientes · Conciliación mensual · Jugadores en mora · Acuerdos de pago · (Configuración de reglas, accesible desde un ícono de ajustes, no como pestaña principal — es infrecuente). Los recordatorios viven dentro de la vista de mora, no como pestaña propia.
 
 **Administrador:** Eventos de cobro · Jugadores.
 
@@ -28,11 +28,12 @@ Lo primero que ve: su estado de cuenta como hero, no una tabla.
 - Debajo: detalle por evento (lo que ya estaba en el wireframe original), como sección secundaria, no como lo primero que se ve.
 
 ### Tesorero
-Lo primero: qué necesita su acción *hoy*, no cuántos jugadores hay en total.
-- Lista de comprobantes pendientes (no solo un contador — la lista misma, para poder actuar en el mismo clic).
-- Estado de la conciliación del mes actual: "Pendiente de cerrar" o "Cuadrada — $0 de diferencia", con acceso directo.
+Lo primero: el estado del mes de un vistazo, y solo después lo que necesita su acción *hoy*.
+- Fila de KPIs: recaudado del mes, comprobantes por revisar (con cuántos requieren revisión), jugadores en mora y estado de la conciliación del mes.
+- Cobros en curso con barras de progreso grandes (pagado / en acuerdo / pendiente).
+- Comprobantes que requieren revisión humana (sin match de jugador o de pago, monto ambiguo, lectura automática fallida), no toda la bandeja — el resto vive en la vista de Comprobantes ordenado igual.
 - Jugadores en mora recientes (solo nombres, como ya se definió), con link a la vista completa.
-- Los totales agregados (recaudado este mes, etc.) se mueven a la vista de Conciliación, donde sí tienen contexto útil.
+- El detalle de los totales agregados sigue en la vista de Conciliación, donde tiene contexto útil.
 
 ### Administrador
 Lo primero: qué requiere atención, no un conteo estático.

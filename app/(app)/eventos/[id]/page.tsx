@@ -24,7 +24,7 @@ export default async function EventoDetalle(props: PageProps<"/eventos/[id]">) {
   if (error) throw error
   if (!e) notFound()
   const hoy = hoyISO()
-  const p = progreso.get(e.id) ?? { total: 0, pagadas: 0, recaudado: 0, monto_total: 0 }
+  const p = progreso.get(e.id) ?? { total: 0, pagadas: 0, con_acuerdo: 0, recaudado: 0, monto_total: 0 }
   const esAdmin = s.roles.includes("administrativo")
   const filas = (obligaciones ?? [])
     .map((o) => ({ ...o, monto: Number(o.monto), pagado: Number(o.pagado), nombre: o.miembros?.nombre ?? "?" }))
@@ -46,14 +46,15 @@ export default async function EventoDetalle(props: PageProps<"/eventos/[id]">) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <ProgressBar value={p.pagadas} total={p.total} />
+          <ProgressBar value={p.pagadas} committed={p.con_acuerdo} total={p.total} />
           <p className="text-[13px] text-muted-foreground">
             {formatCOP(p.recaudado)} recaudados de {formatCOP(p.monto_total)}
+            {p.con_acuerdo > 0 ? ` · ${p.con_acuerdo} ${p.con_acuerdo === 1 ? "en acuerdo de pago" : "en acuerdos de pago"}` : ""}
           </p>
           {esAdmin && e.estado === "activo" ? (
             <div className="flex flex-wrap items-start gap-2">
               <EditarEvento id={e.id} nombre={e.nombre} fecha_limite={e.fecha_limite} />
-              <ActionButton variant="ghost" confirm="Confirmar cancelación — lo pagado pasa a saldo a favor" action={cancelarEventoAction.bind(null, e.id)}>
+              <ActionButton variant="ghost" confirm="Sí, cancelar (lo pagado pasa a saldo a favor)" action={cancelarEventoAction.bind(null, e.id)}>
                 Cancelar evento
               </ActionButton>
             </div>

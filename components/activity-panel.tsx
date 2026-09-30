@@ -19,6 +19,7 @@ const TIPO_LABEL: Record<TipoBitacora, string> = {
   comprobante_rechazado: "Comprobante rechazado",
   conciliacion_guardada: "Conciliación",
   regla_conciliacion_cambiada: "Regla cambiada",
+  acuerdo_pago_cambiado: "Acuerdo de pago",
 }
 
 /**

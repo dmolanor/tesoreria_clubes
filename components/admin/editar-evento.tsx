@@ -38,7 +38,7 @@ export function EditarEvento({ id, nombre, fecha_limite }: { id: string; nombre:
             </Button>
           </div>
           <p className="text-[13px] text-muted-foreground sm:col-span-3">
-            El monto y el alcance no se editan porque cambiarían deudas con pagos ya aplicados: cancela el evento y crea otro.
+            El monto y el alcance no se editan porque cambiarían deudas con pagos ya aplicados. Para cambiarlos, cancela el evento y crea otro.
           </p>
         </>
       )}
