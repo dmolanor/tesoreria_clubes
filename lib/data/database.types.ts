@@ -273,6 +273,7 @@ export type Database = {
           saldo_final: number
           saldo_inicial: number
           total_aceptado: number
+          total_egresos: number
           updated_at: string
         }
         Insert: {
@@ -286,6 +287,7 @@ export type Database = {
           saldo_final: number
           saldo_inicial: number
           total_aceptado?: number
+          total_egresos?: number
           updated_at?: string
         }
         Update: {
@@ -299,6 +301,7 @@ export type Database = {
           saldo_final?: number
           saldo_inicial?: number
           total_aceptado?: number
+          total_egresos?: number
           updated_at?: string
         }
         Relationships: [
@@ -318,6 +321,67 @@ export type Database = {
           },
           {
             foreignKeyName: "conciliaciones_club_id_fkey"
+            columns: ["club_id"]
+            isOneToOne: false
+            referencedRelation: "clubes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      egresos: {
+        Row: {
+          anulado_en: string | null
+          categoria: Database["public"]["Enums"]["categoria_egreso"]
+          club_id: string
+          concepto: string
+          creado_por: string | null
+          created_at: string
+          fecha: string
+          id: string
+          monto: number
+          soporte_path: string | null
+        }
+        Insert: {
+          anulado_en?: string | null
+          categoria?: Database["public"]["Enums"]["categoria_egreso"]
+          club_id: string
+          concepto: string
+          creado_por?: string | null
+          created_at?: string
+          fecha: string
+          id?: string
+          monto: number
+          soporte_path?: string | null
+        }
+        Update: {
+          anulado_en?: string | null
+          categoria?: Database["public"]["Enums"]["categoria_egreso"]
+          club_id?: string
+          concepto?: string
+          creado_por?: string | null
+          created_at?: string
+          fecha?: string
+          id?: string
+          monto?: number
+          soporte_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "egresos_club_id_creado_por_fkey"
+            columns: ["club_id", "creado_por"]
+            isOneToOne: false
+            referencedRelation: "estado_cuenta_miembros"
+            referencedColumns: ["club_id", "miembro_id"]
+          },
+          {
+            foreignKeyName: "egresos_club_id_creado_por_fkey"
+            columns: ["club_id", "creado_por"]
+            isOneToOne: false
+            referencedRelation: "miembros"
+            referencedColumns: ["club_id", "id"]
+          },
+          {
+            foreignKeyName: "egresos_club_id_fkey"
             columns: ["club_id"]
             isOneToOne: false
             referencedRelation: "clubes"
@@ -663,6 +727,7 @@ export type Database = {
           saldo_final: number
           saldo_inicial: number
           total_aceptado: number
+          total_egresos: number
           updated_at: string
         }
         SetofOptions: {
@@ -680,6 +745,12 @@ export type Database = {
     Enums: {
       alcance_cobro: "todos" | "grupo" | "individual"
       canal_comprobante: "manual" | "whatsapp" | "wompi"
+      categoria_egreso:
+        | "arriendo_cancha"
+        | "arbitros"
+        | "equipamiento"
+        | "federacion"
+        | "otro"
       estado_comprobante: "pendiente" | "aceptado" | "rechazado"
       estado_evento: "activo" | "cancelado"
       estado_miembro: "activo" | "lesionado" | "retirado"
@@ -689,6 +760,7 @@ export type Database = {
         | "comprobante"
         | "conciliacion"
         | "regla"
+        | "egreso"
       origen_aplicacion: "propuesta" | "manual" | "saldo_a_favor"
       rol: "administrativo" | "tesorero" | "jugador"
       tipo_bitacora:
@@ -701,6 +773,8 @@ export type Database = {
         | "comprobante_rechazado"
         | "conciliacion_guardada"
         | "regla_conciliacion_cambiada"
+        | "egreso_registrado"
+        | "egreso_anulado"
       tipo_cobro: "mensualidad" | "afiliacion" | "torneo" | "uniforme" | "otro"
       tipo_regla: "monto_exacto" | "evento_especifico" | "mas_antiguo_primero"
     }
@@ -832,6 +906,13 @@ export const Constants = {
     Enums: {
       alcance_cobro: ["todos", "grupo", "individual"],
       canal_comprobante: ["manual", "whatsapp", "wompi"],
+      categoria_egreso: [
+        "arriendo_cancha",
+        "arbitros",
+        "equipamiento",
+        "federacion",
+        "otro",
+      ],
       estado_comprobante: ["pendiente", "aceptado", "rechazado"],
       estado_evento: ["activo", "cancelado"],
       estado_miembro: ["activo", "lesionado", "retirado"],
@@ -841,6 +922,7 @@ export const Constants = {
         "comprobante",
         "conciliacion",
         "regla",
+        "egreso",
       ],
       origen_aplicacion: ["propuesta", "manual", "saldo_a_favor"],
       rol: ["administrativo", "tesorero", "jugador"],
@@ -854,6 +936,8 @@ export const Constants = {
         "comprobante_rechazado",
         "conciliacion_guardada",
         "regla_conciliacion_cambiada",
+        "egreso_registrado",
+        "egreso_anulado",
       ],
       tipo_cobro: ["mensualidad", "afiliacion", "torneo", "uniforme", "otro"],
       tipo_regla: ["monto_exacto", "evento_especifico", "mas_antiguo_primero"],

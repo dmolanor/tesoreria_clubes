@@ -4,6 +4,8 @@ import { proposeAllocation } from "@/lib/engine/propose"
 import type { EngineRule, PendingObligation, Proposal } from "@/lib/engine/types"
 import type { Json } from "@/lib/data/database.types"
 import { cuadraConPendientes, diferenciaConPendientes } from "@/lib/aprobacion-lote"
+import { cuadreMes } from "@/lib/cuadre"
+import { egresosMes } from "@/lib/db/egresos"
 
 export interface PendienteConEvento extends PendingObligation {
   evento: string
@@ -156,13 +158,21 @@ export async function totalAceptadoMes(sb: Supabase, clubId: string, mes: string
  * pendiente del mes. `null` si el mes no tiene conciliación guardada (sin saldos del banco no hay cuadre).
  */
 export async function cuadreParaLote(sb: Supabase, clubId: string, mes: string) {
-  const [{ data: conc, error }, resumen] = await Promise.all([
+  const [{ data: conc, error }, resumen, egresos] = await Promise.all([
     sb.from("conciliaciones").select("saldo_inicial, saldo_final, notas").eq("club_id", clubId).eq("mes", mes).maybeSingle(),
     totalAceptadoMes(sb, clubId, mes),
+    egresosMes(sb, clubId, mes),
   ])
   if (error) throw error
   if (!conc) return null
-  const diferencia = Number(conc.saldo_final) - Number(conc.saldo_inicial) - resumen.total
+  // Misma fórmula que `conciliaciones.diferencia`: los egresos del mes también cuentan.
+  const diferencia =
+    cuadreMes({
+      ingresos: resumen.total,
+      egresos: egresos.total,
+      saldoInicial: Number(conc.saldo_inicial),
+      saldoFinal: Number(conc.saldo_final),
+    }).diferencia ?? 0
   const r = { diferencia, totalPendiente: resumen.totalPendiente, pendientes: resumen.pendienteIds.length }
   return {
     ...r,

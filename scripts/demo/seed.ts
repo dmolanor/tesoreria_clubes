@@ -4,15 +4,18 @@
 import type { Categoria, Db, Usuario } from "./types"
 import {
   aceptarComprobante,
+  anularEgreso,
   cambiarEstadoJugador,
   crearEvento,
   guardarConciliacion,
   pendientesDe,
   propuestaPara,
   rechazarComprobante,
+  registrarEgreso,
   reglasPorDefecto,
   subirComprobante,
   totalAceptadoMes,
+  totalEgresosMes,
   type Ctx,
 } from "./ledger"
 
@@ -68,6 +71,7 @@ export function buildSeed(): Db {
     saldo_a_favor: [],
     reglas_conciliacion: [],
     conciliaciones: [],
+    egresos: [],
     bitacora: [],
   }
   const ctx = (fecha: string, actor: string | null, hora = "15:00"): Ctx => ({
@@ -241,13 +245,36 @@ export function buildSeed(): Db {
   const u6 = buscar((u) => perfil.get(u.id) === "moroso")
   if (u6) pendienteDe(u6, 200_000, "2026-09-28", "09:20")
 
-  // ---- Conciliaciones cerradas (julio y agosto cuadradas) ----
+  // ---- Egresos (ids y bitácora con contador propio: no corren los ids del resto del seed) ----
+  let egresoN = 0
+  const ctxEgreso = (fecha: string, hora: string): Ctx => ({
+    ...ctx(fecha, T, hora),
+    newId: () => `00000000-0000-4000-8000-0000000eb${(++egresoN).toString(16).padStart(3, "0")}`,
+  })
+  const egresos = [
+    ["2026-07-04", 1_200_000, "Arriendo cancha julio (sábados)", "arriendo_cancha"],
+    ["2026-07-10", 600_000, "Inscripción liga 2026", "federacion"],
+    ["2026-08-02", 1_200_000, "Arriendo cancha agosto (sábados)", "arriendo_cancha"],
+    ["2026-08-14", 450_000, "Discos de juego x10", "equipamiento"],
+    ["2026-08-23", 300_000, "Observadores Torneo Regional", "arbitros"],
+    ["2026-09-05", 1_200_000, "Arriendo cancha septiembre (sábados)", "arriendo_cancha"],
+    ["2026-09-06", 1_200_000, "Arriendo cancha septiembre (sábados)", "arriendo_cancha"],
+    ["2026-09-20", 350_000, "Observadores Torneo Nacional", "arbitros"],
+  ] as const
+  egresos.forEach(([fecha, monto, concepto, categoria], i) => {
+    const id = `00000000-0000-4000-8000-0000000e${(i + 1).toString(16).padStart(4, "0")}`
+    registrarEgreso(db, ctxEgreso(fecha, "17:00"), { id, fecha, monto, concepto, categoria })
+  })
+  // El segundo arriendo de septiembre quedó duplicado y la tesorera lo anuló.
+  anularEgreso(db, ctxEgreso("2026-09-06", "17:30"), "00000000-0000-4000-8000-0000000e0007")
+
+  // ---- Conciliaciones cerradas (julio y agosto cuadradas: ingresos − egresos = movimiento del banco) ----
   let saldo = 2_850_000
   const cierres = { "2026-07-01": "2026-08-03", "2026-08-01": "2026-09-03" }
   for (const [mes, fechaCierre] of Object.entries(cierres)) {
-    const total = totalAceptadoMes(db, CLUB_ID, mes)
-    guardarConciliacion(db, ctx(fechaCierre, T), { mes, saldo_inicial: saldo, saldo_final: saldo + total, notas: "Cuadra con el extracto" })
-    saldo += total
+    const neto = totalAceptadoMes(db, CLUB_ID, mes) - totalEgresosMes(db, CLUB_ID, mes)
+    guardarConciliacion(db, ctx(fechaCierre, T), { mes, saldo_inicial: saldo, saldo_final: saldo + neto, notas: "Cuadra con el extracto" })
+    saldo += neto
   }
 
   return db

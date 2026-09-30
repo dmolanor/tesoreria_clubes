@@ -6,12 +6,14 @@ export type EstadoMiembro = Enums<"estado_miembro">
 export type TipoCobro = Enums<"tipo_cobro">
 export type AlcanceCobro = Enums<"alcance_cobro">
 export type TipoBitacora = Enums<"tipo_bitacora">
+export type CategoriaEgreso = Enums<"categoria_egreso">
 export type Miembro = Tables<"miembros">
 export type EventoCobro = Tables<"eventos_cobro">
 export type Obligacion = Tables<"obligaciones">
 export type Comprobante = Tables<"comprobantes">
 export type ReglaConciliacion = Tables<"reglas_conciliacion">
 export type Conciliacion = Tables<"conciliaciones">
+export type Egreso = Tables<"egresos">
 
 export type EstadoCuenta = "al_dia" | "pendiente" | "mora"
 
@@ -25,6 +27,8 @@ export const TIPOS_BITACORA: readonly TipoBitacora[] = [
   "comprobante_rechazado",
   "conciliacion_guardada",
   "regla_conciliacion_cambiada",
+  "egreso_registrado",
+  "egreso_anulado",
 ]
 
 export const TIPO_COBRO_LABEL: Record<TipoCobro, string> = {
@@ -32,5 +36,13 @@ export const TIPO_COBRO_LABEL: Record<TipoCobro, string> = {
   afiliacion: "Afiliación",
   torneo: "Torneo",
   uniforme: "Uniforme",
+  otro: "Otro",
+}
+
+export const CATEGORIA_EGRESO_LABEL: Record<CategoriaEgreso, string> = {
+  arriendo_cancha: "Arriendo de cancha",
+  arbitros: "Árbitros",
+  equipamiento: "Equipamiento",
+  federacion: "Federación o liga",
   otro: "Otro",
 }

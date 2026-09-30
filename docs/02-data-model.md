@@ -6,13 +6,13 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 
 ## Decisiones que moldean el esquema
 
-- **9 tablas, sin tablas "por si acaso".** Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
+- **10 tablas, sin tablas "por si acaso".** Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
 - **`miembros` = persona dentro de un club** (reemplaza a `usuarios` + `roles_usuario` del diseño original). Los roles son un arreglo (`rol[]`): una persona puede ser jugadora y tesorera a la vez, que es un caso real desde el lanzamiento. El miembro existe *antes* de tener cuenta: se carga desde el Excel y `auth_user_id` se vincula solo, por correo, en su primer login con magic link. Una misma cuenta puede pertenecer a varios clubes (una fila por club).
 - **El saldo a favor se deriva, no se guarda.** `aplicaciones` registra qué parte de cada comprobante fue a qué obligación (reemplaza a `pagos_aplicados` + `saldo_a_favor`). El saldo a favor de un comprobante es su monto aceptado menos lo aplicado. Así no hay dos fuentes de verdad que sincronizar.
-- **En finanzas no se borra.** Una aplicación se *anula* (`anulada_en`, `anulada_motivo`). Cancelar un evento o prorratear anula aplicaciones, y el dinero vuelve solo al saldo a favor.
+- **En finanzas no se borra.** Una aplicación se *anula* (`anulada_en`, `anulada_motivo`). Cancelar un evento o prorratear anula aplicaciones, y el dinero vuelve solo al saldo a favor. Un egreso registrado por error también se anula (`anulado_en`) y deja de contar en el cuadre.
 - **`club_id` en todas las tablas + FKs compuestas** `(club_id, x_id) → padre(club_id, id)`: la base impide relacionar filas de clubes distintos aunque la app tenga un bug.
 - **Dinero en `numeric(14,2)`** (COP): las comisiones de pasarelas (Wompi) generan decimales. Las fechas de negocio son `date`, y "hoy" sale de `clubes.zona_horaria`.
-- **Enums para conjuntos cerrados** (roles, estados, tipos de regla, tipos de bitácora) y texto para lo que varía por club (categorías, en `clubes.categorias`).
+- **Enums para conjuntos cerrados** (roles, estados, tipos de regla, tipos de bitácora, categorías de egreso) y texto para lo que varía por club (categorías, en `clubes.categorias`).
 
 ## Tablas
 
@@ -25,8 +25,11 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 | `comprobantes` | Pago reportado: `monto`, `fecha_pago` (fecha de la transferencia; la usa la conciliación), `archivo_path` (Storage), `canal` (manual/whatsapp/wompi), `origen_ref`, `extraccion` (OCR), `estado`, `motivo_rechazo`, `revisado_por/en` | unique `(club_id, canal, origen_ref)` = idempotencia de webhooks; rechazar exige motivo; no se re-revisa |
 | `aplicaciones` | Parte de un comprobante aplicada a una obligación: `monto`, `origen` (propuesta/manual/saldo_a_favor), `regla_id` (auditoría), `anulada_en/motivo` | mismo jugador y club; suma activa ≤ monto del comprobante; cada línea ≤ lo que se debe |
 | `reglas_conciliacion` | Motor configurable (ver `03-reconciliation-engine.md`): `tipo`, `parametros jsonb`, `prioridad`, `activa` | prioridad única (diferible, para reordenar); un solo `mas_antiguo_primero` por club, siempre activo y siempre de último |
-| `conciliaciones` | Cierre mensual: `mes`, `saldo_inicial/final`, `total_aceptado` (snapshot calculado), `diferencia` (generada), `notas` | unique `(club_id, mes)` |
-| `bitacora` | Eventos de negocio: `tipo` (enum cerrado de 9 valores), `actor_id`, `objetivo_tipo/id`, `descripcion`, `metadata` | append-only (un trigger bloquea update/delete, incluso con service role); índice `(club_id, created_at desc, id desc)` para paginar por cursor |
+| `egresos` | Salida de plata de la cuenta del club: `fecha` (la usa la conciliación), `monto`, `concepto`, `categoria` (arriendo_cancha/arbitros/equipamiento/federacion/otro), `soporte_path` (factura o recibo en Storage, opcional), `creado_por`, `anulado_en` | no se edita ni se borra: se anula una vez; `fecha` no futura; el soporte vive en `{club_id}/egresos/` |
+| `conciliaciones` | Cierre mensual: `mes`, `saldo_inicial/final`, `total_aceptado` y `total_egresos` (snapshots calculados), `diferencia` (generada), `notas` | unique `(club_id, mes)` |
+| `bitacora` | Eventos de negocio: `tipo` (enum cerrado de 11 valores), `actor_id`, `objetivo_tipo/id`, `descripcion`, `metadata` | append-only (un trigger bloquea update/delete, incluso con service role); índice `(club_id, created_at desc, id desc)` para paginar por cursor |
+
+**Una sola cuenta bancaria por club.** Ni `conciliaciones` ni `egresos` distinguen cuentas: si un club llega a manejar varias, se agrega `cuenta` a ambas tablas y la conciliación pasa a ser por `(club_id, mes, cuenta)`.
 
 **Vistas** (`security_invoker`, respetan RLS): `estado_cuenta_miembros` (pendiente, vencido, próximo vencimiento, saldo a favor, estado al_dia/pendiente/mora) y `progreso_eventos` (pagadas/total, recaudado/total).
 
@@ -34,12 +37,12 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 
 - **Políticas por fila**, una por operación, siempre `to authenticated`. `anon` no tiene acceso a nada. Helpers `security definer` en el esquema `private` (no expuesto): `mis_miembros()` y `clubes_con_rol(rol[])`, envueltos en `(select …)` para que se evalúen una vez por consulta.
 - **Los roles se leen de `miembros.roles` en cada consulta, nunca del JWT**: quitarle un rol a alguien aplica de inmediato.
-- **Grants por columna**: el jugador inserta sus comprobantes pero no puede tocar `estado`; nadie escribe `obligaciones.pagado`, `total_aceptado` ni la bitácora por API.
+- **Grants por columna**: el jugador inserta sus comprobantes pero no puede tocar `estado`; nadie escribe `obligaciones.pagado`, `total_aceptado`, `total_egresos` ni la bitácora por API. De un egreso solo se actualiza `anulado_en`.
 - **Triggers para lo que RLS no expresa**: `revisado_por` y `creado_por` los fija la base (no se pueden suplantar), validaciones de aplicaciones, FIFO siempre último, club nunca sin admin.
-- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia y **es el único que configura reglas**. El administrador crea y cancela eventos y gestiona jugadores, y lee reglas y conciliación. La bitácora la leen tesorería y administración.
-- **Storage:** bucket privado `comprobantes`, ruta `{club_id}/{miembro_id}/{archivo}`. Cada jugador sube y lee su carpeta; tesorería y administración leen la del club. Nadie edita ni borra archivos.
+- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia, **registra y anula egresos** y **es el único que configura reglas**. El administrador crea y cancela eventos y gestiona jugadores, y lee reglas, egresos y conciliación. El jugador no ve egresos. La bitácora la leen tesorería y administración.
+- **Storage:** bucket privado `comprobantes`, ruta `{club_id}/{miembro_id}/{archivo}`. Cada jugador sube y lee su carpeta; tesorería y administración leen la del club. Los soportes de egresos van al mismo bucket en `{club_id}/egresos/{archivo}`: solo tesorería sube ahí, y tesorería y administración los leen con la misma política de lectura del club (un jugador no, porque `egresos` no es un id de miembro). Nadie edita ni borra archivos.
 
-Pruebas: `supabase/tests/rls.sql` (52 verificaciones, se ejecutan como postgres y se revierten solas).
+Pruebas: `supabase/tests/rls.sql` (tres bloques: RLS general, Storage y prorrateo, egresos y cuadre; se ejecutan como postgres y se revierten solos).
 
 ## Escrituras de negocio (RPC)
 
@@ -54,9 +57,21 @@ Las escrituras que tocan varias filas son funciones Postgres `security invoker` 
 
 El motor de reglas vive en TypeScript (`lib/engine/`): **propone**, y la base valida y escribe. Las operaciones simples (subir o rechazar un comprobante, activar una regla, editar un evento) son escrituras directas bajo RLS.
 
+## Cuadre de la conciliación mensual
+
+La conciliación compara lo que la plataforma dice que debió moverse la cuenta con lo que el extracto dice que se movió:
+
+```
+esperado   = ingresos aceptados del mes − egresos no anulados del mes
+banco      = saldo_final − saldo_inicial
+diferencia = banco − esperado        (0 = cuadrada)
+```
+
+Los ingresos son los comprobantes aceptados cuya `fecha_pago` cae en el mes y los egresos, los no anulados cuya `fecha` cae en el mes. Al guardar, un trigger fija `total_aceptado` y `total_egresos` como snapshot, y `diferencia` es una columna generada con la misma fórmula. Si después se acepta un comprobante o se registra o anula un egreso de ese mes, la conciliación guardada no cambia hasta que la tesorería la vuelve a guardar. La pantalla de Conciliación calcula el cuadre en vivo con `cuadreMes()` (`lib/cuadre.ts`), que replica la fórmula y tiene pruebas en `lib/cuadre.test.ts`.
+
 ## Bitácora
 
-Solo eventos significativos, nunca lecturas. La escriben triggers, así que queda completa sin importar desde dónde se hizo el cambio. Para un club el volumen es de cientos de filas al mes. Si se vuelve multi-club grande, se evalúa particionar por `(club_id, created_at)`; por ahora no se optimiza por adelantado.
+Solo eventos significativos, nunca lecturas. Registrar y anular un egreso son eventos (`egreso_registrado`, `egreso_anulado`, con el monto formateado). La escriben triggers, así que queda completa sin importar desde dónde se hizo el cambio. Para un club el volumen es de cientos de filas al mes. Si se vuelve multi-club grande, se evalúa particionar por `(club_id, created_at)`; por ahora no se optimiza por adelantado.
 
 ## Fases siguientes (sin tablas vacías hoy)
 

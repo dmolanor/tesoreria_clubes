@@ -72,7 +72,7 @@ export function seedSql(db: Db): string {
 begin;
 select set_config('app.seed', 'on', true);  -- la bitácora se copia del seed, sin duplicar por triggers
 
-truncate public.bitacora, public.aplicaciones, public.conciliaciones, public.comprobantes,
+truncate public.bitacora, public.aplicaciones, public.conciliaciones, public.egresos, public.comprobantes,
   public.obligaciones, public.reglas_conciliacion, public.eventos_cobro, public.miembros, public.clubes
   restart identity cascade;
 
@@ -112,6 +112,12 @@ truncate public.bitacora, public.aplicaciones, public.conciliaciones, public.com
     "aplicaciones",
     ["id", "club_id", "comprobante_id", "obligacion_id", "monto", "origen", "regla_id", "creado_por", "created_at"],
     aplicaciones.map((a) => a.row),
+  )
+  // Antes que las conciliaciones: su trigger calcula `total_egresos` al insertarlas.
+  sql += insert(
+    "egresos",
+    ["id", "club_id", "fecha", "monto", "concepto", "categoria", "creado_por", "anulado_en", "created_at"],
+    db.egresos.map((e) => [e.id, e.club_id, e.fecha, e.monto, e.concepto, e.categoria, e.creado_por, e.anulado_en, e.created_at]),
   )
   sql += insert(
     "conciliaciones",
