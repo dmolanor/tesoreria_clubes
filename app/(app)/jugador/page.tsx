@@ -130,7 +130,9 @@ export default async function JugadorHome() {
                       <span className="text-[15px] font-semibold tabular-nums">{formatCOP(c.monto)}</span>
                       <span className="text-[13px] text-muted-foreground">
                         {formatFecha(c.fecha_pago)} ·{" "}
-                        <span className={cn(c.estado === "rechazado" && "text-warn", c.estado === "aceptado" && "text-raza")}>{c.estado}</span>
+                        <span className={cn(c.estado === "rechazado" && "text-warn", c.estado === "aceptado" && "text-raza")}>
+                          {c.estado === "pendiente" ? "En revisión" : c.estado === "aceptado" ? "Aceptado" : "Rechazado"}
+                        </span>
                         {href ? (
                           <>
                             {" · "}
