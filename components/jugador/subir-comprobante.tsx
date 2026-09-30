@@ -22,8 +22,7 @@ export function SubirComprobante({ sugerido, hoy }: { sugerido?: number; hoy: st
         <DialogHeader>
           <DialogTitle>Subir comprobante</DialogTitle>
           <DialogDescription>
-            Escribe el monto total que transferiste. No tienes que elegir a qué cobro va: la tesorería lo aplica según
-            las reglas del club.
+            Escribe el monto total que transferiste. La tesorería lo aplica al cobro que corresponda según las reglas del club.
           </DialogDescription>
         </DialogHeader>
         <ActionForm action={subirComprobanteAction} onSuccess={() => setOpen(false)} className="space-y-4">

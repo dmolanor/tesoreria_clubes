@@ -39,7 +39,7 @@ Una misma persona puede tener más de un rol (ver `02-data-model.md`).
 - **Bot de WhatsApp** — los jugadores seguirán recibiendo cobros y subiendo comprobantes desde la web en v1; WhatsApp como canal adicional (recordatorios + subida de comprobantes) es la fase inmediatamente siguiente, ya contemplada en el modelo de datos.
 - **Pasarela de pago (Wompi u otra)** — decisión pendiente de confirmar con el club. Wompi ofrecería conciliación 100% automática vía webhook para lo que pase por ahí (con comisión ~2.65% + $700 COP + IVA por transacción), pero cualquier pago fuera de Wompi (p. ej. Bre-B directo) seguiría necesitando comprobante manual — así que no elimina el flujo manual, lo reduce parcialmente. El modelo de datos deja espacio (`comprobantes.canal`) para agregarlo sin rediseñar.
 - **Multi-club con autoservicio** — el modelo de datos ya aísla todo por `club_id` para que esto sea viable después, pero el flujo de alta de un club nuevo no se construye en v1.
-- **Planes de pago en cuotas explícitos, exportación a Excel general** — se evalúan en una fase posterior.
+- **Exportación a Excel general** — se evalúa en una fase posterior. (Los planes de pago en cuotas explícitos salieron de esta lista: hoy son los acuerdos de pago.)
 
 ## Cómo se mide que funcionó
 

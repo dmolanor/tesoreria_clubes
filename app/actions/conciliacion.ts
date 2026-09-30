@@ -18,7 +18,7 @@ export async function guardarConciliacionAction(_prev: ActionResult, formData: F
     )
     const diferencia = Number(fila?.diferencia ?? 0)
     return diferencia === 0
-      ? "Conciliación guardada — cuadrada, $0 de diferencia"
+      ? "La conciliación quedó cuadrada, $0 de diferencia"
       : `Conciliación guardada con ${formatCOP(diferencia)} de diferencia`
   })
 }

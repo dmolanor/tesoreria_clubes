@@ -13,6 +13,7 @@ declare
   u_tesb uuid := gen_random_uuid();  -- tesorero en B
   m_tes uuid; m_adm uuid; m_jug uuid; m_jug2 uuid; m_tesb uuid;
   v_evento uuid; v_torneo uuid; v_obl uuid; v_comp uuid; v_comp2 uuid; v_comp_b uuid;
+  v_acuerdo uuid;
   n int;
   v numeric;
   ok int := 0;
@@ -214,6 +215,87 @@ begin
   end;
   execute 'reset role';
 
+  -- ---------- acuerdos de pago ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select o.id into v_obl from public.obligaciones o
+  join public.eventos_cobro e on e.id = o.evento_id
+  where e.nombre = 'Mensualidad' and o.miembro_id = m_jug2;
+  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, notas)
+  values (club_a, m_jug2, v_obl, 'Paga en dos partes') returning id into v_acuerdo;
+  insert into public.cuotas_acuerdo (club_id, acuerdo_id, numero, fecha, monto) values
+    (club_a, v_acuerdo, 1, current_date + 7, 50000),
+    (club_a, v_acuerdo, 2, current_date + 14, 50000);
+  select count(*) into n from public.bitacora where tipo = 'acuerdo_pago_cambiado';
+  assert n = 1, 'bitácora registra el acuerdo';
+  ok := ok + 2;
+  -- el acuerdo y la deuda son del mismo jugador
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug, v_obl);
+    raise exception 'NO_FALLO acuerdo con jugador distinto al de la deuda';
+  exception when check_violation then ok := ok + 1;
+  end;
+  -- una sola deuda, un solo acuerdo activo
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl);
+    raise exception 'NO_FALLO segundo acuerdo activo sobre la misma deuda';
+  exception when unique_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- jugador 2 ve el suyo; jugador 1 no ve nada y no puede crear
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug2, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.acuerdos_pago;
+  assert n = 1, 'el jugador ve su propio acuerdo';
+  select count(*) into n from public.cuotas_acuerdo;
+  assert n = 2, 'el jugador ve sus cuotas';
+  ok := ok + 2;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.acuerdos_pago;
+  assert n = 0, 'un jugador no ve acuerdos ajenos';
+  -- Sobre su propia deuda, para que la validación de jugador/deuda no se adelante a RLS.
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id)
+    select club_a, m_jug, o.id from public.obligaciones o
+    join public.eventos_cobro e on e.id = o.evento_id
+    where e.nombre = 'Mensualidad' and o.miembro_id = m_jug;
+    raise exception 'NO_FALLO jugador creó un acuerdo';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    insert into public.cuotas_acuerdo (club_id, acuerdo_id, numero, fecha, monto) values (club_a, v_acuerdo, 3, current_date, 1000);
+    raise exception 'NO_FALLO jugador agregó una cuota';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  ok := ok + 1;  -- el assert de aislamiento
+  execute 'reset role';
+
+  -- administración lee pero no crea
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.acuerdos_pago;
+  assert n = 1, 'administración ve los acuerdos del club';
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl);
+    raise exception 'NO_FALLO administración creó un acuerdo';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  ok := ok + 1;
+  execute 'reset role';
+
+  -- cancelar libera la deuda para un acuerdo nuevo
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.acuerdos_pago set estado = 'cancelado' where id = v_acuerdo;
+  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl) returning id into v_acuerdo;
+  select count(*) into n from public.acuerdos_pago where obligacion_id = v_obl and estado = 'activo';
+  assert n = 1, 'tras cancelar queda un solo acuerdo activo';
+  ok := ok + 2;
+  execute 'reset role';
+
   -- ---------- club B no ve A; cambio de rol aplica de inmediato ----------
   perform set_config('request.jwt.claims', json_build_object('sub', u_tesb, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
@@ -232,6 +314,38 @@ begin
   ok := ok + 1;
   execute 'reset role';
 
+  -- ---------- recordatorios ----------
+  update public.miembros set roles = '{tesorero,jugador}' where id = m_tes;  -- devolverle tesorería
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.reglas_recordatorio (club_id, nombre, tipo, dia_mes) values (club_a, 'Mensualidad día 5', 'mensual', 5)
+  returning id into v_comp;
+  update public.reglas_recordatorio set activa = false where id = v_comp;
+  delete from public.reglas_recordatorio where id = v_comp;
+  ok := ok + 1;
+  begin
+    insert into public.reglas_recordatorio (club_id, nombre, tipo, dias_antes) values (club_a, 'x', 'mensual', 3);
+    raise exception 'NO_FALLO regla mensual con dias_antes';
+  exception when check_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.reglas_recordatorio (club_id, nombre, tipo) values (club_a, 'x', 'acuerdo_pago');
+    raise exception 'NO_FALLO jugador creó un recordatorio';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.reglas_recordatorio (club_id, nombre, tipo) values (club_a, 'x', 'acuerdo_pago');
+    raise exception 'NO_FALLO administración creó un recordatorio';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
   raise exception 'RLS_OK % pruebas pasaron', ok;
 end
 $pruebas$;
@@ -243,6 +357,7 @@ declare
   u_jug uuid := gen_random_uuid(); u_jug2 uuid := gen_random_uuid(); u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid();
   m_jug uuid; m_jug2 uuid;
   v_evento uuid; v_comp uuid;
+  v_hoy date; v_fecha date; v_esperado numeric;
   n int; v numeric; ok int := 0;
 begin
   insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}');
@@ -291,13 +406,196 @@ begin
   perform public.cambiar_estado_miembro(m_jug, 'lesionado');
   select o.monto into v from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug;
   assert v < 100000 and v >= 50000, format('mensualidad prorrateada con piso del 50%%, quedó %s', v);
+  -- Sin fecha efectiva se comporta como antes: prorratea con private.hoy del club.
+  v_hoy := private.hoy(club_a);
+  v_esperado := least(100000, greatest(round(100000 * 0.5, -2),
+    round(100000 * extract(day from v_hoy)
+          / extract(day from (date_trunc('month', v_hoy) + interval '1 month - 1 day')), -2)));
+  assert v = v_esperado, format('sin fecha efectiva prorratea con hoy: esperado %s, quedó %s', v_esperado, v);
   select saldo_a_favor into v from public.estado_cuenta_miembros where miembro_id = m_jug;
   assert v > 0, 'el exceso pagado queda como saldo a favor';
   select count(*) into n from public.bitacora where tipo = 'jugador_estado_cambiado' and descripcion like '%prorrateo%';
   assert n = 1, 'la bitácora explica el prorrateo';
+  ok := ok + 4;
+  execute 'reset role';
+
+  -- Fecha efectiva: lesión el día 21 del mes pasado, registrada hoy, con esa mensualidad ya pagada.
+  v_fecha := (date_trunc('month', v_hoy) - interval '1 month')::date + 20;
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_evento := public.crear_evento(club_a, 'Mensualidad pasada', 'mensualidad', 100000, v_fecha - 10, 'todos');
+  execute 'reset role';
+  insert into public.comprobantes (club_id, miembro_id, monto, estado, revisado_en) values (club_a, m_jug2, 100000, 'aceptado', now())
+  returning id into v_comp;
+  insert into public.aplicaciones (club_id, comprobante_id, obligacion_id, monto, origen)
+  select club_a, v_comp, o.id, 100000, 'manual' from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug2;
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  -- una fecha futura se rechaza y no cambia nada
+  begin
+    perform public.cambiar_estado_miembro(m_jug2, 'lesionado', v_hoy + 1);
+    raise exception 'NO_FALLO aceptó una fecha efectiva futura';
+  exception when check_violation then ok := ok + 1;
+  end;
+  select count(*) into n from public.miembros where id = m_jug2 and estado = 'activo';
+  assert n = 1, 'la fecha futura no cambió el estado';
+  ok := ok + 1;
+  perform public.cambiar_estado_miembro(m_jug2, 'lesionado', v_fecha);
+  v_esperado := greatest(round(100000 * 0.5, -2),
+    round(100000 * 21 / extract(day from (date_trunc('month', v_fecha) + interval '1 month - 1 day')), -2));
+  select o.monto into v from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug2;
+  assert v = v_esperado, format('prorrateo al día 21 del mes de la fecha efectiva: esperado %s, quedó %s', v_esperado, v);
+  select saldo_a_favor into v from public.estado_cuenta_miembros where miembro_id = m_jug2;
+  assert v = 100000 - v_esperado, format('mes pasado ya pagado: el excedente queda a favor (%s), dice %s', 100000 - v_esperado, v);
+  select count(*) into n from public.bitacora
+  where tipo = 'jugador_estado_cambiado' and objetivo_id = m_jug2
+    and descripcion like '%desde el ' || to_char(v_fecha, 'DD/MM/YYYY') || '%'
+    and metadata->>'fecha_efectiva' = v_fecha::text;
+  assert n = 1, 'la bitácora muestra la fecha efectiva';
   ok := ok + 3;
   execute 'reset role';
 
   raise exception 'STORAGE_Y_PRORRATEO_OK % pruebas pasaron', ok;
 end
 $pruebas_storage$;
+
+-- Egresos y cuadre (tercer bloque, mismo patrón).
+do $pruebas_egresos$
+declare
+  club_a uuid := gen_random_uuid();
+  club_b uuid := gen_random_uuid();
+  u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid(); u_jug uuid := gen_random_uuid(); u_tesb uuid := gen_random_uuid();
+  m_jug uuid;
+  v_egreso uuid; v_egreso_b uuid;
+  v_mes date := date_trunc('month', current_date)::date;
+  n int; v numeric; ok int := 0;
+begin
+  insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}'), (club_b, 'Club B', '{Open}');
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values
+    (club_a, 'Tes', 'tes@e.test', null, '{tesorero}'), (club_a, 'Adm', 'adm@e.test', null, '{administrativo}'),
+    (club_a, 'Jugador', 'jug@e.test', 'Élite', '{jugador}'), (club_b, 'Tes B', 'tesb@e.test', 'Open', '{tesorero,administrativo}');
+  insert into auth.users (id, email) values (u_tes, 'tes@e.test'), (u_adm, 'adm@e.test'), (u_jug, 'jug@e.test'), (u_tesb, 'tesb@e.test');
+  select id into m_jug from public.miembros where auth_user_id = u_jug;
+  -- Un ingreso aceptado del mes (como postgres) para probar el cuadre.
+  insert into public.comprobantes (club_id, miembro_id, monto, fecha_pago, estado, revisado_en)
+  values (club_a, m_jug, 500000, v_mes, 'aceptado', now());
+
+  -- ---------- tesorera A: registra y anula ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria) values
+    (club_a, v_mes, 300000, 'Arriendo de cancha', 'arriendo_cancha') returning id into v_egreso;
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_a, v_mes, 50000, 'Duplicado', 'otro');
+  select count(*) into n from public.egresos e where e.creado_por = (select id from public.miembros where auth_user_id = u_tes);
+  assert n = 2, 'creado_por = la tesorera (lo fija el trigger)';
+  select count(*) into n from public.bitacora where tipo = 'egreso_registrado' and club_id = club_a and descripcion like '%$300.000%';
+  assert n = 1, 'bitácora registra el egreso con el monto formateado';
+  ok := ok + 3;
+  update public.egresos set anulado_en = now() where concepto = 'Duplicado';
+  select count(*) into n from public.bitacora where tipo = 'egreso_anulado' and club_id = club_a;
+  assert n = 1, 'bitácora registra la anulación';
+  ok := ok + 1;
+  -- no se re-anula ni se edita el monto
+  begin
+    update public.egresos set anulado_en = now() where concepto = 'Duplicado';
+    raise exception 'NO_FALLO re-anulación';
+  exception when check_violation then ok := ok + 1;
+  end;
+  begin
+    update public.egresos set monto = 1 where id = v_egreso;
+    raise exception 'NO_FALLO tesorera editó el monto';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    delete from public.egresos where id = v_egreso;
+    raise exception 'NO_FALLO tesorera borró un egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  -- no a nombre de otro club
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_b, v_mes, 1000, 'x');
+    raise exception 'NO_FALLO egreso en otro club';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  -- ni con fecha futura
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, current_date + 40, 1000, 'x');
+    raise exception 'NO_FALLO egreso futuro';
+  exception when check_violation then ok := ok + 1;
+  end;
+  -- Storage: sube el soporte a la carpeta de egresos del club
+  insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/f.pdf', club_a));
+  ok := ok + 1;
+  -- Cuadre: 500.000 aceptados − 300.000 de egresos (el anulado no cuenta) = 200.000 esperados
+  perform public.guardar_conciliacion(club_a, v_mes, 1000000, 1200000);
+  select total_egresos into v from public.conciliaciones where club_id = club_a;
+  assert v = 300000, format('total_egresos 300.000 (sin el anulado), dice %s', v);
+  select diferencia into v from public.conciliaciones where club_id = club_a;
+  assert v = 0, format('cuadra: 1.200.000 − 1.000.000 − (500.000 − 300.000) = 0, dice %s', v);
+  ok := ok + 2;
+  execute 'reset role';
+
+  -- ---------- admin A: lee, no registra ni anula ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.egresos;
+  assert n = 2, format('admin lee los egresos del club, vio %s', n);
+  select count(*) into n from storage.objects where bucket_id = 'comprobantes' and name like format('%s/egresos/%%', club_a);
+  assert n = 1, 'admin ve el soporte';
+  ok := ok + 2;
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, v_mes, 1000, 'x');
+    raise exception 'NO_FALLO admin registró un egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  update public.egresos set anulado_en = now() where id = v_egreso;
+  get diagnostics n = row_count;
+  assert n = 0, 'NO_FALLO admin anuló un egreso';
+  ok := ok + 1;
+  begin
+    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/g.pdf', club_a));
+    raise exception 'NO_FALLO admin subió un soporte';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- jugador A: no ve ni registra ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.egresos;
+  assert n = 0, 'el jugador no ve egresos';
+  select count(*) into n from storage.objects where bucket_id = 'comprobantes';
+  assert n = 0, 'el jugador no ve los soportes';
+  ok := ok + 2;
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, v_mes, 1000, 'x');
+    raise exception 'NO_FALLO jugador registró un egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/h.pdf', club_a));
+    raise exception 'NO_FALLO jugador subió un soporte de egreso';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- club B: aislamiento ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tesb, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.egresos (club_id, fecha, monto, concepto) values (club_b, v_mes, 70000, 'Discos') returning id into v_egreso_b;
+  select count(*) into n from public.egresos;
+  assert n = 1, format('B solo ve su egreso, vio %s', n);
+  update public.egresos set anulado_en = now() where id = v_egreso;
+  get diagnostics n = row_count;
+  assert n = 0, 'B no anula egresos de A';
+  ok := ok + 2;
+  begin
+    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/i.pdf', club_a));
+    raise exception 'NO_FALLO B subió a la carpeta de A';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  raise exception 'EGRESOS_OK % pruebas pasaron', ok;
+end
+$pruebas_egresos$;

@@ -1,20 +1,27 @@
 import { pageSession } from "@/lib/auth/page"
 import { comprobantesDe, estadoCuenta, obligacionesDe, urlsFirmadas } from "@/lib/db/cuenta"
+import { acuerdosDeMiembro } from "@/lib/db/acuerdos"
+import { cobrosDelAño } from "@/lib/db/calendario"
 import { formatCOP, formatFecha, hoyISO, relativoVencimiento } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { StatusDot } from "@/components/status-dot"
 import { SubirComprobante } from "@/components/jugador/subir-comprobante"
+import { AcuerdosPago } from "@/components/jugador/acuerdos-pago"
+import { CalendarioPagos } from "@/components/jugador/calendario-pagos"
 import { cn } from "@/lib/utils"
 
 export default async function JugadorHome() {
   const s = await pageSession("jugador")
   const sb = s.supabase
   const hoy = hoyISO()
-  const [cuenta, obligaciones, comprobantes] = await Promise.all([
+  const año = Number(hoy.slice(0, 4))
+  const [cuenta, obligaciones, comprobantes, acuerdos, calendario] = await Promise.all([
     estadoCuenta(sb, s.club_id, s.usuario.id),
     obligacionesDe(sb, s.usuario.id),
     comprobantesDe(sb, { miembroId: s.usuario.id }),
+    acuerdosDeMiembro(sb, s.usuario.id),
+    cobrosDelAño(sb, s.club_id, s.usuario.id, año),
   ])
   const urls = await urlsFirmadas(sb, comprobantes.map((c) => c.archivo_path))
   const ultimo = comprobantes[0]
@@ -45,7 +52,7 @@ export default async function JugadorHome() {
         )}
         {cuenta.saldo_a_favor > 0 ? (
           <p className="mt-3 text-[14px]">
-            Tienes <strong>{formatCOP(cuenta.saldo_a_favor)}</strong> a favor — se aplicará a tu próximo cobro.
+            Tienes <strong>{formatCOP(cuenta.saldo_a_favor)}</strong> a favor. Se aplicará a tu próximo cobro.
           </p>
         ) : null}
         <div className="mt-5">
@@ -68,6 +75,10 @@ export default async function JugadorHome() {
           </div>
         ) : null}
       </section>
+
+      <AcuerdosPago acuerdos={acuerdos} />
+
+      <CalendarioPagos año={año} meses={calendario.meses} hoy={hoy} />
 
       <Card>
         <CardHeader>
@@ -119,7 +130,9 @@ export default async function JugadorHome() {
                       <span className="text-[15px] font-semibold tabular-nums">{formatCOP(c.monto)}</span>
                       <span className="text-[13px] text-muted-foreground">
                         {formatFecha(c.fecha_pago)} ·{" "}
-                        <span className={cn(c.estado === "rechazado" && "text-warn", c.estado === "aceptado" && "text-raza")}>{c.estado}</span>
+                        <span className={cn(c.estado === "rechazado" && "text-warn", c.estado === "aceptado" && "text-raza")}>
+                          {c.estado === "pendiente" ? "En revisión" : c.estado === "aceptado" ? "Aceptado" : "Rechazado"}
+                        </span>
                         {href ? (
                           <>
                             {" · "}

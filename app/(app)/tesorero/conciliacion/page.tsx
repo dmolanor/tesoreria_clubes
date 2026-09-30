@@ -1,10 +1,16 @@
 import Link from "next/link"
 import { pageSession } from "@/lib/auth/page"
-import { totalAceptadoMes } from "@/lib/db/tesoreria"
+import { cuadreParaLote, totalAceptadoMes } from "@/lib/db/tesoreria"
+import { egresosMes } from "@/lib/db/egresos"
+import { urlsFirmadas } from "@/lib/db/cuenta"
+import { rangoMes } from "@/lib/cuadre"
 import { formatCOP, formatMes, hoyISO } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConciliacionForm } from "@/components/tesorero/conciliacion-form"
+import { AprobarLote } from "@/components/tesorero/aprobar-lote"
+import { EgresoForm } from "@/components/tesorero/egreso-form"
+import { EgresosList } from "@/components/tesorero/egresos-list"
 import { ActivityPanel } from "@/components/activity-panel"
 import { StatusDot } from "@/components/status-dot"
 import { cn } from "@/lib/utils"
@@ -21,11 +27,18 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
   const { mes: raw } = await props.searchParams
   const mes = typeof raw === "string" && meses.includes(raw) ? raw : meses[0]
 
-  const [{ data: historial, error }, resumen] = await Promise.all([
+  const [{ data: historial, error }, resumen, egresos, cuadre] = await Promise.all([
     sb.from("conciliaciones").select("*").eq("club_id", s.club_id).order("mes", { ascending: false }),
     totalAceptadoMes(sb, s.club_id, mes),
+    egresosMes(sb, s.club_id, mes),
+    cuadreParaLote(sb, s.club_id, mes),
   ])
   if (error) throw error
+  const soportes = await urlsFirmadas(sb, egresos.items.map((e) => e.soporte_path))
+  // El formulario de egresos solo acepta fechas del mes que se está cuadrando (y nunca futuras).
+  const { inicio, fin } = rangoMes(mes)
+  const ultimoDia = new Date(Date.parse(`${fin}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)
+  const fechaMax = ultimoDia < hoyISO() ? ultimoDia : hoyISO()
   const actual = historial?.find((c) => c.mes === mes)
   const anterior = historial?.find((c) => c.mes < mes)
 
@@ -48,17 +61,41 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-[13px] text-muted-foreground">
-            {formatMes(mes)} (por fecha de pago): {resumen.aceptados} comprobantes aceptados por {formatCOP(resumen.total)} · {resumen.pendientes} sin
-            revisar · {resumen.rechazados} rechazados.
-            {resumen.pendientes ? " Revisa los pendientes antes de cerrar el mes." : ""}
+            Por fecha de pago, {formatMes(mes).toLowerCase()} trae {resumen.aceptados} comprobantes aceptados por {formatCOP(resumen.total)},{" "}
+            {resumen.pendientes} sin revisar y {resumen.rechazados} rechazados.
+            {resumen.pendientes && !cuadre?.cuadra ? " Revisa los pendientes antes de cerrar el mes." : ""}
           </p>
+          {cuadre?.cuadra ? (
+            <p className="text-[13px]">
+              La diferencia de {formatCOP(cuadre.diferencia)} entre el banco y lo aceptado es exactamente lo que suman {cuadre.pendientes === 1 ? "el comprobante pendiente" : `los ${cuadre.pendientes} comprobantes pendientes`} de{" "}
+              {formatMes(mes)}. Al aprobarlos, el mes queda en $0 de diferencia. Cada uno se aplica con la propuesta de las reglas de conciliación, y los que no tengan
+              propuesta completa quedan en Comprobantes para revisarlos a mano.
+            </p>
+          ) : null}
+          <AprobarLote key={mes} mes={mes} pendientes={cuadre?.cuadra ? cuadre.pendientes : 0} />
           <ConciliacionForm
             mes={mes}
             totalAceptado={resumen.total}
+            totalEgresos={egresos.total}
             saldoInicial={Number(actual?.saldo_inicial ?? anterior?.saldo_final ?? 0)}
             saldoFinal={actual ? Number(actual.saldo_final) : null}
             notas={actual?.notas ?? null}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Egresos de {formatMes(mes).toLowerCase()}</CardTitle>
+          <p className="text-[13px] text-muted-foreground">
+            {egresos.vigentes === 0
+              ? "Arriendo de cancha, árbitros, equipamiento o liga: lo que salga de la cuenta se descuenta del cuadre."
+              : `${egresos.vigentes} ${egresos.vigentes === 1 ? "egreso" : "egresos"} por ${formatCOP(egresos.total)}, descontados del cuadre.`}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <EgresoForm min={inicio} max={fechaMax} />
+          <EgresosList items={egresos.items} soportes={soportes} />
         </CardContent>
       </Card>
 
@@ -74,11 +111,18 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
                 <TableHead className="text-right">Saldo inicial</TableHead>
                 <TableHead className="text-right">Saldo final</TableHead>
                 <TableHead className="text-right">Aceptado</TableHead>
+                <TableHead className="text-right">Egresos</TableHead>
                 <TableHead className="text-right">Diferencia</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(historial ?? []).map((c) => {
+              {(historial ?? []).length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    Aún no hay meses cerrados.
+                  </TableCell>
+                </TableRow>
+              ) : (historial ?? []).map((c) => {
                 const dif = Number(c.diferencia ?? 0)
                 return (
                   <TableRow key={c.id}>
@@ -90,6 +134,7 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
                     <TableCell className="text-right tabular-nums">{formatCOP(Number(c.saldo_inicial))}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCOP(Number(c.saldo_final))}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCOP(Number(c.total_aceptado))}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCOP(Number(c.total_egresos))}</TableCell>
                     <TableCell className={cn("text-right tabular-nums", dif !== 0 && "font-bold text-warn")}>
                       <StatusDot estado={dif === 0 ? "al_dia" : "mora"} className="mr-1.5" />
                       {formatCOP(dif)}
@@ -101,7 +146,7 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
           </Table>
         </CardContent>
       </Card>
-      <ActivityPanel tipos={["conciliacion_guardada", "comprobante_aceptado", "comprobante_rechazado"]} />
+      <ActivityPanel tipos={["conciliacion_guardada", "comprobante_aceptado", "comprobante_rechazado", "egreso_registrado", "egreso_anulado"]} />
     </div>
   )
 }

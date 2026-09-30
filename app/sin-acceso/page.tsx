@@ -15,8 +15,8 @@ export default async function SinAcceso() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p>
-            <strong>{correo}</strong> no está registrado en ningún club. Pídele al administrador que te agregue con este correo;
-            después solo tienes que volver a entrar.
+            <strong>{correo}</strong> no está activo en ningún club. Pídele a la administración del club que te invite con este correo.
+            Después solo tienes que volver a entrar.
           </p>
           <form action={salir}>
             <Button type="submit" variant="outline">

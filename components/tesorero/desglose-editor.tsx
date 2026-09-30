@@ -32,7 +32,7 @@ export function DesgloseEditor({ comprobanteId, monto, filas }: { comprobanteId:
       {(pending) => (
         <>
           <input type="hidden" name="comprobante_id" value={comprobanteId} />
-          {filas.length === 0 ? <p className="text-muted-foreground">El jugador no tiene deudas pendientes: todo irá a saldo a favor.</p> : null}
+          {filas.length === 0 ? <p className="text-muted-foreground">Como el jugador no tiene deudas pendientes, todo irá a saldo a favor.</p> : null}
           <ul className="divide-y divide-border">
             {filas.map((f) => {
               const v = valores[f.obligacion_id] || 0

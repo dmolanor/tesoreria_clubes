@@ -2,7 +2,11 @@ import "server-only"
 import type { Supabase } from "@/lib/supabase/server"
 import { proposeAllocation } from "@/lib/engine/propose"
 import type { EngineRule, PendingObligation, Proposal } from "@/lib/engine/types"
+import { necesitaHumano } from "@/lib/revision"
 import type { Json } from "@/lib/data/database.types"
+import { cuadraConPendientes, diferenciaConPendientes } from "@/lib/aprobacion-lote"
+import { cuadreMes } from "@/lib/cuadre"
+import { egresosMes } from "@/lib/db/egresos"
 
 export interface PendienteConEvento extends PendingObligation {
   evento: string
@@ -55,19 +59,26 @@ export interface ComprobantePendiente {
   id: string
   miembro_id: string
   miembro: string
+  /** false si el comprobante no está ligado a un miembro visible (p. ej. un canal futuro sin identificar). */
+  miembro_identificado: boolean
   monto: number
   fecha_pago: string
   created_at: string
   archivo_path: string | null
+  canal: string
   propuesta: Proposal
   pendientes: PendienteConEvento[]
+  revision: { requiere: boolean; motivos: string[] }
 }
 
-/** Bandeja del tesorero: comprobantes pendientes con la propuesta del motor ya calculada. */
+/**
+ * Bandeja del tesorero: comprobantes pendientes con la propuesta del motor ya
+ * calculada. Los que requieren revisión humana van primero.
+ */
 export async function bandeja(sb: Supabase, clubId: string, filtro?: { id?: string }): Promise<ComprobantePendiente[]> {
   let q = sb
     .from("comprobantes")
-    .select("id, miembro_id, monto, fecha_pago, created_at, archivo_path, miembros!comprobantes_club_id_miembro_id_fkey(nombre)")
+    .select("id, miembro_id, monto, fecha_pago, created_at, archivo_path, canal, extraccion, miembros!comprobantes_club_id_miembro_id_fkey(nombre)")
     .eq("club_id", clubId)
     .eq("estado", "pendiente")
     .order("created_at")
@@ -79,20 +90,26 @@ export async function bandeja(sb: Supabase, clubId: string, filtro?: { id?: stri
     pendientesPorMiembro(sb, [...new Set(comps.map((c) => c.miembro_id))]),
     reglasDelClub(sb, clubId).then(comoReglasMotor),
   ])
-  return comps.map((c) => {
-    const pend = pendientes.get(c.miembro_id) ?? []
-    return {
-      id: c.id,
-      miembro_id: c.miembro_id,
-      miembro: c.miembros?.nombre ?? "?",
-      monto: Number(c.monto),
-      fecha_pago: c.fecha_pago,
-      created_at: c.created_at,
-      archivo_path: c.archivo_path,
-      pendientes: pend,
-      propuesta: proposeAllocation({ monto: Number(c.monto), pendientes: pend, reglas }),
-    }
-  })
+  return comps
+    .map((c) => {
+      const pend = pendientes.get(c.miembro_id) ?? []
+      const propuesta = proposeAllocation({ monto: Number(c.monto), pendientes: pend, reglas })
+      return {
+        id: c.id,
+        miembro_id: c.miembro_id,
+        miembro: c.miembros?.nombre ?? "?",
+        miembro_identificado: !!c.miembro_id && !!c.miembros,
+        monto: Number(c.monto),
+        fecha_pago: c.fecha_pago,
+        created_at: c.created_at,
+        archivo_path: c.archivo_path,
+        canal: c.canal,
+        pendientes: pend,
+        propuesta,
+        revision: necesitaHumano({ pendientes: pend.length, propuesta, canal: c.canal, extraccion: c.extraccion }),
+      }
+    })
+    .sort((a, b) => Number(b.revision.requiere) - Number(a.revision.requiere) || a.created_at.localeCompare(b.created_at))
 }
 
 /** Líneas para la RPC `aceptar_comprobante` (el sobrante no se envía: queda como saldo a favor). */
@@ -128,17 +145,52 @@ export async function totalAceptadoMes(sb: Supabase, clubId: string, mes: string
   const fin = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)
   const { data, error } = await sb
     .from("comprobantes")
-    .select("monto, estado")
+    .select("id, monto, estado")
     .eq("club_id", clubId)
     .gte("fecha_pago", inicio)
     .lt("fecha_pago", fin)
   if (error) throw error
   const filas = data ?? []
+  const pendientes = filas.filter((c) => c.estado === "pendiente")
   return {
+    /** Comprobantes pendientes con fecha de pago en el mes (los que respalda el extracto de ese mes). */
+    pendienteIds: pendientes.map((c) => c.id),
+    totalPendiente: pendientes.reduce((s, c) => s + Number(c.monto), 0),
     total: filas.filter((c) => c.estado === "aceptado").reduce((s, c) => s + Number(c.monto), 0),
     aceptados: filas.filter((c) => c.estado === "aceptado").length,
     pendientes: filas.filter((c) => c.estado === "pendiente").length,
     rechazados: filas.filter((c) => c.estado === "rechazado").length,
+  }
+}
+
+/**
+ * Cuadre del mes para aprobar en lote: la misma diferencia que guarda la conciliación
+ * (saldo final − saldo inicial − aceptado, con lo aceptado recalculado hoy) comparada contra lo
+ * pendiente del mes. `null` si el mes no tiene conciliación guardada (sin saldos del banco no hay cuadre).
+ */
+export async function cuadreParaLote(sb: Supabase, clubId: string, mes: string) {
+  const [{ data: conc, error }, resumen, egresos] = await Promise.all([
+    sb.from("conciliaciones").select("saldo_inicial, saldo_final, notas").eq("club_id", clubId).eq("mes", mes).maybeSingle(),
+    totalAceptadoMes(sb, clubId, mes),
+    egresosMes(sb, clubId, mes),
+  ])
+  if (error) throw error
+  if (!conc) return null
+  // Misma fórmula que `conciliaciones.diferencia`: los egresos del mes también cuentan.
+  const diferencia =
+    cuadreMes({
+      ingresos: resumen.total,
+      egresos: egresos.total,
+      saldoInicial: Number(conc.saldo_inicial),
+      saldoFinal: Number(conc.saldo_final),
+    }).diferencia ?? 0
+  const r = { diferencia, totalPendiente: resumen.totalPendiente, pendientes: resumen.pendienteIds.length }
+  return {
+    ...r,
+    conciliacion: conc,
+    pendienteIds: resumen.pendienteIds,
+    diferenciaConPendientes: diferenciaConPendientes(r),
+    cuadra: cuadraConPendientes(r),
   }
 }
 

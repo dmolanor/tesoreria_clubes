@@ -2,8 +2,10 @@
 
 import { requireRole } from "@/lib/auth/session"
 import { check, runAction, DomainError, type ActionResult } from "@/lib/action-result"
-import { bandeja, lineasRpc } from "@/lib/db/tesoreria"
-import { formatCOP, hoyISO, parseMonto } from "@/lib/format"
+import { bandeja, cuadreParaLote, lineasRpc, type ComprobantePendiente } from "@/lib/db/tesoreria"
+import { evaluarAprobableEnLote, MOTIVO_REVISION } from "@/lib/aprobacion-lote"
+import { formatCOP, formatMes, hoyISO, parseMonto } from "@/lib/format"
+import type { Supabase } from "@/lib/supabase/server"
 
 const TIPOS: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -44,15 +46,93 @@ export async function subirComprobanteAction(_prev: ActionResult, formData: Form
   })
 }
 
+/** Acepta un comprobante con el desglose que propone el motor, sin cambios. Única ruta para "aceptar la propuesta". */
+async function aceptarPropuesta(sb: Supabase, c: ComprobantePendiente) {
+  check(await sb.rpc("aceptar_comprobante", { p_comprobante_id: c.id, p_lineas: lineasRpc(c.propuesta.lineas) }))
+}
+
 /** Tesorero: acepta tal cual la propuesta del motor (1 clic desde la bandeja). */
 export async function aceptarPropuestaAction(comprobanteId: string): Promise<ActionResult> {
   return runAction(async () => {
     const s = await requireRole("tesorero")
     const [c] = await bandeja(s.supabase, s.club_id, { id: comprobanteId })
     if (!c) throw new DomainError("Este comprobante ya fue revisado")
-    check(await s.supabase.rpc("aceptar_comprobante", { p_comprobante_id: c.id, p_lineas: lineasRpc(c.propuesta.lineas) }))
+    await aceptarPropuesta(s.supabase, c)
     return "Comprobante aceptado"
   })
+}
+
+export interface ParaRevision {
+  id: string
+  miembro: string
+  motivo: string
+}
+
+export type AprobacionLoteResult =
+  | { ok: true; message: string; aprobados: number; revision: ParaRevision[] }
+  | { ok: false; error: string }
+  | null
+
+/**
+ * Tesorero, desde Conciliación: si el extracto del mes respalda exactamente los comprobantes
+ * pendientes de ese mes, acepta cada uno con la propuesta del motor (la misma ruta que
+ * `aceptarPropuestaAction`). El servidor recalcula el cuadre antes de tocar nada; los que no
+ * tienen propuesta completa quedan pendientes para revisión manual.
+ */
+export async function aprobarPendientesDelMesAction(mes: string): Promise<AprobacionLoteResult> {
+  let aprobados = 0
+  const revision: ParaRevision[] = []
+  const r = await runAction(async () => {
+    const s = await requireRole("tesorero")
+    if (!/^\d{4}-\d{2}-01$/.test(mes)) throw new DomainError("El mes no es válido")
+    const cuadre = await cuadreParaLote(s.supabase, s.club_id, mes)
+    if (!cuadre) throw new DomainError(`Guarda primero la conciliación de ${formatMes(mes)} con los saldos del banco`)
+    if (!cuadre.pendientes) throw new DomainError(`No hay comprobantes pendientes con fecha de pago en ${formatMes(mes)}`)
+    if (!cuadre.cuadra) {
+      throw new DomainError(
+        `El extracto ya no cuadra con los pendientes de ${formatMes(mes)}: quedarían ${formatCOP(cuadre.diferenciaConPendientes)} de diferencia. No se aprobó ninguno.`,
+      )
+    }
+
+    for (const id of cuadre.pendienteIds) {
+      // Se relee uno por uno: si el mismo jugador tiene dos comprobantes, la propuesta del
+      // segundo ya ve las deudas que cubrió el primero.
+      const [c] = await bandeja(s.supabase, s.club_id, { id })
+      if (!c) continue // alguien lo revisó mientras tanto
+      const ev = evaluarAprobableEnLote(c)
+      if (!ev.aprobable) {
+        revision.push({ id: c.id, miembro: c.miembro, motivo: MOTIVO_REVISION[ev.motivo] })
+        continue
+      }
+      try {
+        await aceptarPropuesta(s.supabase, c)
+        aprobados++
+      } catch (err) {
+        if (!(err instanceof DomainError)) throw err
+        revision.push({ id: c.id, miembro: c.miembro, motivo: err.message })
+      }
+    }
+
+    if (aprobados) {
+      // La conciliación guarda lo aceptado como snapshot: se vuelve a guardar con los mismos
+      // saldos para que el historial muestre la diferencia real después de aprobar.
+      check(
+        await s.supabase.rpc("guardar_conciliacion", {
+          p_club_id: s.club_id,
+          p_mes: mes,
+          p_saldo_inicial: Number(cuadre.conciliacion.saldo_inicial),
+          p_saldo_final: Number(cuadre.conciliacion.saldo_final),
+          p_notas: cuadre.conciliacion.notas ?? "",
+        }),
+      )
+    }
+    const comp = (n: number) => (n === 1 ? "1 comprobante" : `${n} comprobantes`)
+    const hechos = aprobados ? `Aprobaste ${comp(aprobados)} de ${formatMes(mes)}.` : "No se aprobó ningún comprobante."
+    const quedan = revision.length === 1 ? "queda" : "quedan"
+    // runAction revalida el layout completo: bandeja, conciliación, inicio del tesorero y cuentas de jugadores.
+    return revision.length ? `${hechos} ${comp(revision.length)} ${quedan} para revisión manual.` : hechos
+  })
+  return r?.ok ? { ok: true, message: r.message ?? "", aprobados, revision } : r
 }
 
 /**
@@ -88,7 +168,7 @@ export async function rechazarAction(_prev: ActionResult, formData: FormData): P
   return runAction(async () => {
     const s = await requireRole("tesorero")
     const motivo = String(formData.get("motivo") ?? "").trim()
-    if (!motivo) throw new DomainError("Escribe el motivo del rechazo — el jugador lo verá")
+    if (!motivo) throw new DomainError("Escribe el motivo del rechazo. El jugador lo verá")
     const filas = check(
       await s.supabase
         .from("comprobantes")
@@ -98,6 +178,6 @@ export async function rechazarAction(_prev: ActionResult, formData: FormData): P
         .select("id"),
     )
     if (!filas?.length) throw new DomainError("Este comprobante ya fue revisado")
-    return "Comprobante rechazado — el jugador verá el motivo"
+    return "Comprobante rechazado. El jugador verá el motivo"
   })
 }

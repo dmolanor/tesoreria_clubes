@@ -36,9 +36,10 @@ export async function TopBar({ session }: { session: Session }) {
     jugador: [{ href: "/jugador", label: "Inicio" }],
     tesorero: [
       { href: "/tesorero", label: "Inicio" },
-      { href: "/tesorero/comprobantes", label: "Comprobantes", badge: pendientes },
       { href: "/tesorero/conciliacion", label: "Conciliación" },
       { href: "/tesorero/mora", label: "Mora" },
+      { href: "/tesorero/acuerdos", label: "Acuerdos" },
+      { href: "/tesorero/comprobantes", label: "Comprobantes", badge: pendientes },
       { href: "/tesorero/reglas", label: "Reglas de conciliación", icon: "settings" },
     ],
     administrativo: [

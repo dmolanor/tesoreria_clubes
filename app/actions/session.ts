@@ -1,11 +1,13 @@
 "use server"
 
 import { createHmac, timingSafeEqual } from "node:crypto"
-import { cookies, headers } from "next/headers"
+import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { DEMO_MODE, ROL_COOKIE, ROL_HOME, getSession } from "@/lib/auth/session"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { origenDeLaPeticion } from "@/lib/auth/invitar"
+import { correoValido, esCorreoSinCuenta, normalizarCorreo } from "@/lib/invitaciones"
 import type { ActionResult } from "@/lib/action-result"
 import type { Rol } from "@/lib/db/types"
 
@@ -35,20 +37,18 @@ export async function cambiarRol(rol: Rol) {
   redirect(ROL_HOME[rol])
 }
 
-/** Magic link: Supabase envía el enlace; /auth/confirm lo canjea por la sesión. */
+/** Magic link, solo para correos que ya tienen cuenta (la administración los invita). /auth/confirm canjea el enlace. */
 export async function enviarEnlace(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const correo = String(formData.get("correo") ?? "").trim().toLowerCase()
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) return { ok: false, error: "Escribe un correo válido" }
+  const correo = normalizarCorreo(String(formData.get("correo") ?? ""))
+  if (!correoValido(correo)) return { ok: false, error: "Escribe un correo válido" }
   const supabase = await createClient()
-  // El enlace vuelve al mismo sitio desde donde se pidió (localhost, ngrok o Vercel).
-  const h = await headers()
-  const origin = h.get("origin") ?? `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`
   const { error } = await supabase.auth.signInWithOtp({
     email: correo,
-    options: { emailRedirectTo: `${origin}/auth/confirm`, shouldCreateUser: true },
+    options: { emailRedirectTo: `${await origenDeLaPeticion()}/auth/confirm`, shouldCreateUser: false },
   })
   if (error) {
-    return { ok: false, error: error.status === 429 ? "Se enviaron demasiados enlaces; espera unos minutos" : error.message }
+    if (esCorreoSinCuenta(error)) return { ok: false, error: "Ese correo no tiene invitación. Pídesela a la administración del club" }
+    return { ok: false, error: error.status === 429 ? "Se enviaron demasiados enlaces. Espera unos minutos." : error.message }
   }
   return { ok: true, message: `Te enviamos un enlace a ${correo}. Ábrelo desde este u otro dispositivo.` }
 }

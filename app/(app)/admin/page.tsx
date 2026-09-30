@@ -1,12 +1,16 @@
 import Link from "next/link"
+import { Send } from "lucide-react"
 import { pageSession } from "@/lib/auth/page"
-import { categoriasDelClub, eventosDelClub, opcionesJugadores, progresoEventos } from "@/lib/db/admin"
+import { categoriasDelClub, eventosDelClub, miembrosSinCuenta, opcionesJugadores, progresoEventos } from "@/lib/db/admin"
 import { diasEntre, formatCOP, formatFecha, hoyISO, relativoVencimiento } from "@/lib/format"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ProgressBar } from "@/components/progress-bar"
 import { NuevoEvento } from "@/components/admin/nuevo-evento"
 import { ImportarJugadores } from "@/components/admin/importar-jugadores"
+import { AgregarJugador } from "@/components/admin/agregar-jugador"
 import { ActivityPanel } from "@/components/activity-panel"
+import { ActionButton } from "@/components/action-button"
+import { invitarPendientesAction } from "@/app/actions/jugadores"
 
 const UMBRAL_RECAUDO = 0.8 // por debajo de esto, un evento cercano a vencer necesita seguimiento
 const VENTANA_DIAS = 14
@@ -15,11 +19,12 @@ export default async function AdminHome() {
   const s = await pageSession("administrativo")
   const sb = s.supabase
   const hoy = hoyISO()
-  const [eventos, progreso, jugadores, categorias, { data: cambios }] = await Promise.all([
+  const [eventos, progreso, jugadores, categorias, sinCuenta, { data: cambios }] = await Promise.all([
     eventosDelClub(sb, s.club_id),
     progresoEventos(sb, s.club_id),
     opcionesJugadores(sb, s.club_id),
     categoriasDelClub(sb, s.club_id),
+    miembrosSinCuenta(sb, s.club_id),
     sb
       .from("bitacora")
       .select("id, objetivo_id, descripcion, created_at")
@@ -39,7 +44,17 @@ export default async function AdminHome() {
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
         <NuevoEvento jugadores={jugadores} categorias={categorias} />
+        <AgregarJugador categorias={categorias} />
         <ImportarJugadores />
+        {sinCuenta > 0 ? (
+          <ActionButton
+            variant="outline"
+            action={invitarPendientesAction}
+            confirm={sinCuenta === 1 ? "¿Enviar 1 correo?" : `¿Enviar ${sinCuenta} correos?`}
+          >
+            <Send /> {sinCuenta === 1 ? "Invitar a 1 miembro sin cuenta" : `Invitar a los ${sinCuenta} sin cuenta`}
+          </ActionButton>
+        ) : null}
       </div>
 
       <Card>
@@ -51,7 +66,7 @@ export default async function AdminHome() {
         </CardHeader>
         <CardContent>
           {atencion.length === 0 ? (
-            <p className="text-muted-foreground">Nada urgente: los cobros cercanos van bien.</p>
+            <p className="text-muted-foreground">Los cobros cercanos van bien.</p>
           ) : (
             <ul className="divide-y divide-border">
               {atencion.map(({ e, p }) => (
@@ -63,7 +78,7 @@ export default async function AdminHome() {
                         {relativoVencimiento(e.fecha_limite, hoy)} · {formatFecha(e.fecha_limite, true)}
                       </span>
                     </div>
-                    <ProgressBar value={p!.pagadas} total={p!.total} className="mt-1" />
+                    <ProgressBar value={p!.pagadas} committed={p!.con_acuerdo} total={p!.total} className="mt-1" />
                     <p className="mt-1 text-[13px] text-muted-foreground">
                       {formatCOP(p!.recaudado)} recaudados de {formatCOP(p!.monto_total)}
                     </p>

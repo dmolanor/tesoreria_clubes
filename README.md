@@ -25,7 +25,11 @@ npm run dev       # http://localhost:3000
 2. **Authentication → Email Templates → Magic Link.** Cambia el enlace a:
    `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`
    Así el enlace funciona aunque el jugador abra el correo en el celular (otro navegador). Sin este cambio solo funciona en el mismo navegador donde se pidió.
-3. **Antes de invitar a los ~50 jugadores:** Authentication → SMTP Settings con un proveedor propio (Resend, gratis hasta 3.000/mes; requiere un dominio). El correo por defecto de Supabase solo permite unos pocos envíos por hora.
+3. **Authentication → Email Templates → Invite user.** Cambia el enlace a:
+   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite`
+   El invitado entra y pasa por `/bienvenida` para dejar su celular. Con la plantilla por defecto el enlace de invitación no funciona (Supabase devuelve la sesión en el fragmento `#`, que el servidor no ve).
+   El registro es solo por invitación: el login pide el enlace con `shouldCreateUser: false`, así que un correo que la administración no invitó recibe "Ese correo no tiene invitación".
+4. **Antes de invitar a los ~50 jugadores:** Authentication → SMTP Settings con un proveedor propio (Resend, gratis hasta 3.000/mes; requiere un dominio). El correo por defecto de Supabase solo permite unos pocos envíos por hora.
 
 ### Desplegar en Vercel
 
@@ -48,11 +52,11 @@ npm run dev       # http://localhost:3000
 ### Estructura
 
 - `lib/engine/` — motor de reglas de conciliación (función pura + tests). Propone; la base valida y escribe.
-- `lib/supabase/` — clientes: `server.ts` (sesión del usuario, RLS), `proxy.ts` (refresco de sesión, usado por `proxy.ts` en la raíz), `admin.ts` (secret key, solo modo demo).
+- `lib/supabase/` — clientes: `server.ts` (sesión del usuario, RLS), `proxy.ts` (refresco de sesión, usado por `proxy.ts` en la raíz), `admin.ts` (secret key, solo servidor: modo demo, invitaciones y completar el registro propio).
 - `lib/auth/session.ts` — `getSession()` / `requireRole()`: sesión de Supabase + roles leídos de `miembros`.
 - `lib/db/` — lecturas tipadas (estado de cuenta, bandeja con propuesta del motor, mora, eventos, bitácora).
 - `app/actions/` — server actions: RPCs de la base para escrituras de varias filas, escrituras directas bajo RLS para el resto.
-- `app/(app)/` — pantallas con sesión (jugador, tesorero, admin); `app/login`, `app/auth/confirm`, `app/sin-acceso` son públicas.
+- `app/(app)/` — pantallas con sesión (jugador, tesorero, admin); `app/login`, `app/auth/confirm`, `app/sin-acceso` son públicas; `app/bienvenida` (primer ingreso de un invitado) pide sesión pero va sin barra superior.
 - `scripts/demo/` — generador del historial demo (solo produce `supabase/seed.sql`; la app no lo importa).
 
 ### Decisiones provisionales (marcadas `TODO(club)` en el código)
