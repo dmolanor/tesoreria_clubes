@@ -1,5 +1,5 @@
 // Cuadre de la conciliación mensual. Es la misma fórmula que la columna generada
-// `conciliaciones.diferencia` (migración 20260930200000_egresos.sql):
+// `conciliaciones.diferencia` (migración 20260930014028_egresos.sql):
 //   diferencia = (saldo final − saldo inicial) − (ingresos aceptados − egresos no anulados)
 
 export interface Cuadre {

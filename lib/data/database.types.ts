@@ -911,8 +911,8 @@ export type Database = {
         | "comprobante"
         | "conciliacion"
         | "regla"
-        | "egreso"
         | "acuerdo_pago"
+        | "egreso"
       origen_aplicacion: "propuesta" | "manual" | "saldo_a_favor"
       rol: "administrativo" | "tesorero" | "jugador"
       tipo_bitacora:
@@ -925,9 +925,9 @@ export type Database = {
         | "comprobante_rechazado"
         | "conciliacion_guardada"
         | "regla_conciliacion_cambiada"
+        | "acuerdo_pago_cambiado"
         | "egreso_registrado"
         | "egreso_anulado"
-        | "acuerdo_pago_cambiado"
       tipo_cobro: "mensualidad" | "afiliacion" | "torneo" | "uniforme" | "otro"
       tipo_recordatorio: "mensual" | "previo_vencimiento" | "acuerdo_pago"
       tipo_regla: "monto_exacto" | "evento_especifico" | "mas_antiguo_primero"
@@ -1077,8 +1077,8 @@ export const Constants = {
         "comprobante",
         "conciliacion",
         "regla",
-        "egreso",
         "acuerdo_pago",
+        "egreso",
       ],
       origen_aplicacion: ["propuesta", "manual", "saldo_a_favor"],
       rol: ["administrativo", "tesorero", "jugador"],
@@ -1092,9 +1092,9 @@ export const Constants = {
         "comprobante_rechazado",
         "conciliacion_guardada",
         "regla_conciliacion_cambiada",
+        "acuerdo_pago_cambiado",
         "egreso_registrado",
         "egreso_anulado",
-        "acuerdo_pago_cambiado",
       ],
       tipo_cobro: ["mensualidad", "afiliacion", "torneo", "uniforme", "otro"],
       tipo_recordatorio: ["mensual", "previo_vencimiento", "acuerdo_pago"],
