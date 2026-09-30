@@ -105,11 +105,13 @@ export default async function TesoreroHome() {
           <Card>
             <CardHeader>
               <CardTitle>Requieren tu revisión ({requieren.length})</CardTitle>
-              <CardAction>
-                <Link href="/tesorero/comprobantes" className="text-[13px] underline underline-offset-2">
-                  Ver los {items.length} pendientes
-                </Link>
-              </CardAction>
+              {items.length > 0 ? (
+                <CardAction>
+                  <Link href="/tesorero/comprobantes" className="text-[13px] underline underline-offset-2">
+                    Ver los {items.length} pendientes
+                  </Link>
+                </CardAction>
+              ) : null}
             </CardHeader>
             <CardContent>
               {requieren.length === 0 ? (
