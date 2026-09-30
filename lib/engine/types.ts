@@ -1,4 +1,6 @@
-import type { TipoRegla } from "@/lib/data/types"
+import type { Enums } from "@/lib/data/database.types"
+
+type TipoRegla = Enums<"tipo_regla">
 
 /** Obligación pendiente de un jugador, con saldo ya calculado. */
 export interface PendingObligation {

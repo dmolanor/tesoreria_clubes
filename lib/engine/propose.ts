@@ -1,8 +1,10 @@
-import type { TipoRegla } from "@/lib/data/types"
+import type { Enums } from "@/lib/data/database.types"
 import type { EngineRule, PendingObligation, Proposal, ProposalLine, RuleHandler } from "./types"
 import { montoExacto } from "./rules/monto-exacto"
 import { eventoEspecifico } from "./rules/evento-especifico"
 import { masAntiguoPrimero } from "./rules/mas-antiguo-primero"
+
+type TipoRegla = Enums<"tipo_regla">
 
 /** Catálogo cerrado de tipos (docs/03). Agregar un tipo = un handler + una entrada aquí. */
 export const RULE_HANDLERS: Record<TipoRegla, RuleHandler> = {

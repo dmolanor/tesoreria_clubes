@@ -14,7 +14,7 @@ import {
   subirComprobante,
   totalAceptadoMes,
   type Ctx,
-} from "@/lib/domain/ledger"
+} from "./ledger"
 
 export const CLUB_ID = "00000000-0000-4000-8000-00000000c1b0"
 export const DEMO_IDS = {

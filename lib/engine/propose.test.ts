@@ -55,7 +55,7 @@ describe("proposeAllocation", () => {
     const especifico: EngineRule = {
       id: "r-torneo",
       tipo: "evento_especifico",
-      condicion: { evento_cobro_id: "e-tor" },
+      condicion: { evento_id: "e-tor" },
       prioridad: 1,
       activa: true,
     }
@@ -74,7 +74,7 @@ describe("proposeAllocation", () => {
     const especifico: EngineRule = {
       id: "r-torneo",
       tipo: "evento_especifico",
-      condicion: { evento_cobro_id: "e-tor" },
+      condicion: { evento_id: "e-tor" },
       prioridad: 1,
       activa: true,
     }

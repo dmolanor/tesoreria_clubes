@@ -5,9 +5,9 @@
 
 import { promises as fs } from "node:fs"
 import path from "node:path"
-import { buildSeed } from "../lib/data/seed"
+import { buildSeed } from "./demo/seed"
 import { diaLocal } from "../lib/format"
-import type { Db, EventoCobro } from "../lib/data/types"
+import type { Db, EventoCobro } from "./demo/types"
 
 type Val = string | number | boolean | null | undefined | string[] | Record<string, unknown>
 

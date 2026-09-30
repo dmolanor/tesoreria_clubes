@@ -1,3 +1,4 @@
+// Generador de datos demo (historial jul–sep 2026). Solo lo usa scripts/generate-seed-sql.ts; la app no lo importa.
 // Lógica de negocio pura sobre un snapshot `Db` (sin I/O, sin Next).
 // Las server actions la envuelven en `store.transaction`; el seed la usa para
 // construir un historial coherente. En Supabase esto se volverá RPC/SQL.
@@ -11,7 +12,7 @@ import type {
   ReglaConciliacion,
   TipoBitacora,
   Usuario,
-} from "@/lib/data/types"
+} from "./types"
 import type { PendingObligation, ProposalLine } from "@/lib/engine/types"
 import { proposeAllocation } from "@/lib/engine/propose"
 import { diaLocal, formatCOP } from "@/lib/format"
@@ -524,7 +525,7 @@ export function agregarReglaEvento(db: Db, ctx: Ctx, eventoId: string) {
     club_id: ctx.club_id,
     nombre: `Priorizar "${e.nombre}"`,
     tipo: "evento_especifico",
-    condicion: { evento_cobro_id: e.id },
+    condicion: { evento_id: e.id },
     accion: {},
     prioridad: 0, // se inserta de primera
     activa: true,
