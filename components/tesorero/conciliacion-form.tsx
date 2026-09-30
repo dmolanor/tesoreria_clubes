@@ -8,15 +8,28 @@ import { Button } from "@/components/ui/button"
 import { ActionForm } from "@/components/action-form"
 import { guardarConciliacionAction } from "@/app/actions/conciliacion"
 import { formatCOP } from "@/lib/format"
+import { cuadreMes } from "@/lib/cuadre"
 import { cn } from "@/lib/utils"
 
 const num = (s: string) => Number(s.replace(/[^\d]/g, "")) || 0
 
-/** Saldo inicial/final del extracto vs. lo aceptado en la plataforma; la diferencia se ve en vivo. */
-export function ConciliacionForm(props: { mes: string; totalAceptado: number; saldoInicial: number; saldoFinal: number | null; notas: string | null }) {
+/** Saldos del extracto vs. ingresos − egresos registrados en la plataforma; la diferencia se ve en vivo. */
+export function ConciliacionForm(props: {
+  mes: string
+  totalAceptado: number
+  totalEgresos: number
+  saldoInicial: number
+  saldoFinal: number | null
+  notas: string | null
+}) {
   const [inicial, setInicial] = useState(String(props.saldoInicial || ""))
   const [final, setFinal] = useState(props.saldoFinal == null ? "" : String(props.saldoFinal))
-  const diferencia = num(final) - num(inicial) - props.totalAceptado
+  const cuadre = cuadreMes({
+    ingresos: props.totalAceptado,
+    egresos: props.totalEgresos,
+    saldoInicial: num(inicial),
+    saldoFinal: final ? num(final) : null,
+  })
 
   return (
     <ActionForm action={guardarConciliacionAction} className="space-y-4" key={props.mes}>
@@ -34,13 +47,17 @@ export function ConciliacionForm(props: { mes: string; totalAceptado: number; sa
             </div>
           </div>
           <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 rounded-lg bg-muted p-3 tabular-nums">
+            <dt>Ingresos (comprobantes aceptados)</dt>
+            <dd className="text-right">{formatCOP(cuadre.ingresos)}</dd>
+            <dt>Egresos registrados</dt>
+            <dd className="text-right">{formatCOP(cuadre.egresos ? -cuadre.egresos : 0)}</dd>
+            <dt className="font-medium">Neto esperado (ingresos − egresos)</dt>
+            <dd className="text-right font-medium">{formatCOP(cuadre.esperado)}</dd>
             <dt>Movimiento del banco (final − inicial)</dt>
-            <dd className="text-right">{formatCOP(num(final) - num(inicial))}</dd>
-            <dt>Comprobantes aceptados en la plataforma</dt>
-            <dd className="text-right">{formatCOP(props.totalAceptado)}</dd>
+            <dd className="text-right">{cuadre.banco == null ? "—" : formatCOP(cuadre.banco)}</dd>
             <dt className="font-bold">Diferencia</dt>
-            <dd className={cn("text-right font-bold", final && diferencia !== 0 && "text-warn", final && diferencia === 0 && "text-raza")}>
-              {final ? formatCOP(diferencia) : "—"}
+            <dd className={cn("text-right font-bold", cuadre.diferencia != null && cuadre.diferencia !== 0 && "text-warn", cuadre.diferencia === 0 && "text-raza")}>
+              {cuadre.diferencia == null ? "—" : formatCOP(cuadre.diferencia)}
             </dd>
           </dl>
           <div className="space-y-1.5">
