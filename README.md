@@ -2,56 +2,65 @@
 
 Plataforma web para gestionar cobros, pagos y conciliación financiera del club de Ultimate Frisbee Raza Ultimate (categorías Élite y Junior). Pensada para que, en el futuro, otros clubes puedan usarla sin mezclar sus datos.
 
-**Estado actual:** prototipo funcional local con datos mock (sin Supabase ni Vercel todavía). Los tres roles, el motor de conciliación, la conciliación mensual y la bitácora funcionan sobre un archivo JSON local.
+**Estado actual:** la app corre sobre Supabase (Postgres con RLS, Storage y Auth por magic link), con un modo demo para probar los tres roles. Lista para desplegar en Vercel.
 
-## Correr el prototipo
+## Correr en local
+
+Requisitos: Node 22 (`.node-version`; con fnm basta `fnm use`) y las variables de `.env.example` en `.env` / `.env.local`.
 
 ```bash
 npm install
-npm run seed      # genera .data/db.json con ~48 jugadores y el historial jul–sep 2026
 npm run dev       # http://localhost:3000
 ```
 
-- **Sin login:** usa el selector **"Actuar como…"** de la barra superior. Laura Gómez es tesorera + jugadora (multi-rol), Andrés Molina es administrador, Diego Rincón es administrador + jugador.
-- **Reiniciar datos:** `npm run seed` o el botón en `/dev`.
-- **Tests del motor de conciliación:** `npm test`. También `npm run typecheck` y `npm run lint`.
+- **Entrar:** con tu correo (magic link) o, si `DEMO_MODE=on`, en "Modo demo" eligiendo una cuenta y escribiendo `DEMO_PASSWORD`. Laura Gómez es tesorera + jugadora, Andrés Molina administrador, Diego Rincón administrador + jugador. Dentro de la app, el selector **Demo** cambia de cuenta sin volver a pedir la clave (8 h).
+- **Reiniciar los datos demo:** `npm run seed:supabase` (requiere `SUPABASE_DB_URL`). Recarga `supabase/seed.sql` y vuelve a vincular las cuentas demo.
+- **Tests:** `npm test` (motor de conciliación), `npm run typecheck`, `npm run lint`. Las pruebas de RLS están en `supabase/tests/rls.sql`.
 
-### Compartir con ngrok
+### Configuración de Supabase Auth (una vez, en el Dashboard)
 
-Una sola vez: `ngrok config add-authtoken <token>` (token en dashboard.ngrok.com).
+1. **Authentication → URL Configuration.**
+   - **Site URL:** la URL de producción (Vercel).
+   - **Redirect URLs:** `http://localhost:3000/**`, `https://*.ngrok-free.app/**` y el dominio de Vercel (`https://<proyecto>.vercel.app/**`).
+2. **Authentication → Email Templates → Magic Link.** Cambia el enlace a:
+   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`
+   Así el enlace funciona aunque el jugador abra el correo en el celular (otro navegador). Sin este cambio solo funciona en el mismo navegador donde se pidió.
+3. **Antes de invitar a los ~50 jugadores:** Authentication → SMTP Settings con un proveedor propio (Resend, gratis hasta 3.000/mes; requiere un dominio). El correo por defecto de Supabase solo permite unos pocos envíos por hora.
 
-```bash
-npm run share        # build de producción + ngrok (estable)
-npm run share:dev    # next dev + ngrok (recarga en caliente)
-```
+### Desplegar en Vercel
 
-El script imprime usuario y clave (autenticación básica en ngrok; sin ella, cualquiera con la URL podría "actuar como" la tesorera). Opcional: `SHARE_PASSWORD=...` para fijar la clave y `NGROK_DOMAIN=tu-dominio.ngrok-free.app` para usar tu dominio estático gratuito. Detén `npm run dev` antes (usan el mismo puerto).
+1. Importa el repo y elige el preset **Next.js**.
+2. Variables de entorno: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `DEMO_MODE`, `DEMO_PASSWORD`.
+3. Agrega el dominio de Vercel en las Redirect URLs de Supabase (paso 1 de arriba).
+4. Cuando entren los jugadores reales: `DEMO_MODE=off`.
+
+### Compartir por ngrok
+
+`npm run share` (build + ngrok con usuario y clave; ver `scripts/share.sh`). Agrega la URL de ngrok a las Redirect URLs de Supabase si vas a probar el magic link por ahí.
 
 ### Supabase
 
-El esquema definitivo ya está en Supabase (proyecto "Tesoreria Clubes Ultimate"); la app todavía corre sobre el JSON local hasta el siguiente plan.
-
 - `supabase/migrations/` — fuente de verdad del esquema (9 tablas, RLS, triggers, funciones, Storage). Explicación en `docs/02-data-model.md`.
 - `supabase/tests/rls.sql` — 46 pruebas de RLS e invariantes; se ejecutan como postgres y se revierten solas (terminan con `RLS_OK …`).
-- `supabase/seed.sql` — datos demo generados con `npm run seed:sql` (mismo historial que el JSON).
-- `npm run seed:supabase` — carga el seed en Supabase. Requiere `SUPABASE_DB_URL` en `.env.local` (Dashboard → Connect → Session pooler).
+- `supabase/seed.sql` — datos demo, generados con `npm run seed:sql` desde `scripts/demo/` (historial jul–sep 2026).
 - `lib/data/database.types.ts` — tipos generados; regenerar después de cada migración.
 
 ### Estructura
 
-- `lib/engine/` — motor de reglas de conciliación (función pura + tests). El núcleo del producto.
-- `lib/domain/ledger.ts` — lógica de negocio pura (aceptar/rechazar, eventos, saldo a favor, prorrateo, reglas, conciliación).
-- `lib/data/` — tipos del esquema (1:1 con `docs/02-data-model.md`), interfaz `Store` y su implementación JSON. Para pasar a Supabase se implementa `Store` otra vez; dominio y UI no cambian.
-- `lib/auth/session.ts` — `getSession()` / `requireRole()`: hoy cookie dev, mañana Supabase Auth. Toda server action pasa por `requireRole` (el sustituto de RLS mientras no hay Postgres).
-- `app/actions/` — server actions por área. `app/{jugador,tesorero,admin}` — inicio y vistas de cada rol; `app/eventos`, `app/jugadores` — vistas compartidas admin/tesorero.
+- `lib/engine/` — motor de reglas de conciliación (función pura + tests). Propone; la base valida y escribe.
+- `lib/supabase/` — clientes: `server.ts` (sesión del usuario, RLS), `proxy.ts` (refresco de sesión, usado por `proxy.ts` en la raíz), `admin.ts` (secret key, solo modo demo).
+- `lib/auth/session.ts` — `getSession()` / `requireRole()`: sesión de Supabase + roles leídos de `miembros`.
+- `lib/db/` — lecturas tipadas (estado de cuenta, bandeja con propuesta del motor, mora, eventos, bitácora).
+- `app/actions/` — server actions: RPCs de la base para escrituras de varias filas, escrituras directas bajo RLS para el resto.
+- `app/(app)/` — pantallas con sesión (jugador, tesorero, admin); `app/login`, `app/auth/confirm`, `app/sin-acceso` son públicas.
+- `scripts/demo/` — generador del historial demo (solo produce `supabase/seed.sql`; la app no lo importa).
 
 ### Decisiones provisionales (marcadas `TODO(club)` en el código)
 
 - **Prorrateo** al pasar a lesionado/retirado: proporcional a los días activos del mes, con piso del 50% de la mensualidad. Falta confirmar la fórmula y el monto mínimo con la tesorera.
-- **Mensualidades** se reconocen por el nombre ("Mensualidad…"). Conviene agregar un tipo de evento al modelo.
 - **Cancelar un evento** con pagos: lo pagado pasa a saldo a favor del jugador.
 - **Lesionados/retirados** no reciben obligaciones de eventos nuevos.
-- **Conciliación mensual** suma los comprobantes aceptados según su fecha de carga (hora de Colombia).
+- **Conciliación mensual** suma los comprobantes aceptados según su fecha de pago (la que indica el jugador al subirlo).
 
 ## Empezar aquí
 

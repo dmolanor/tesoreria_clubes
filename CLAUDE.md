@@ -12,7 +12,7 @@ Diseñada desde el día 1 para que, en el futuro, otros clubes la usen sin mezcl
 
 - **Next.js (App Router) + TypeScript** para frontend y backend en un solo proyecto (server actions / route handlers). Sin backend separado — mantener la infraestructura simple es un requisito explícito del producto, no solo técnico.
 - **Supabase**: Postgres, Supabase Auth (magic link / OTP por correo — sin contraseñas, para no añadir fricción a jugadores no técnicos), Storage (comprobantes), Row Level Security como mecanismo principal de autorización (ver `docs/02-data-model.md`).
-- **Vercel** para despliegue.
+- **Vercel** para despliegue. Node 22 (`.node-version`).
 - **Tailwind CSS** + `shadcn/ui` como base de componentes, pero personalizado — ver `DESIGN.md`. No usar los estilos por defecto de shadcn sin ajustar tokens.
 - Idioma de la interfaz: **español** (los usuarios son jugadores y directivos del club). Identificadores de código (variables, funciones, tipos): **inglés**, como es convención. **Excepción deliberada:** los nombres de tablas/columnas de la base de datos están en **español** porque reflejan el dominio de negocio tal como el club y este documento lo discuten (`eventos_cobro`, `comprobantes`, etc.) — mantener esa consistencia entre docs, conversación con el club y esquema, en vez de traducir y crear dos vocabularios paralelos.
 

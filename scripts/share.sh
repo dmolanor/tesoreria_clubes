@@ -3,6 +3,7 @@
 #   npm run share       → build de producción + next start (estable, recomendado)
 #   npm run share:dev   → next dev (recarga en caliente mientras iteramos)
 # Variables opcionales: SHARE_USER, SHARE_PASSWORD (≥8 caracteres), NGROK_DOMAIN (dominio estático gratis de ngrok), PORT.
+# Recuerda agregar la URL de ngrok en Supabase → Auth → URL Configuration → Redirect URLs para que el magic link funcione.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,8 +21,6 @@ if lsof -ti tcp:"$PORT" >/dev/null 2>&1; then
   echo "El puerto $PORT está ocupado (¿otro 'npm run dev'?). Deténlo o usa PORT=3001 npm run share."
   exit 1
 fi
-
-[ -f .data/db.json ] || npm run seed
 
 if [ "$MODE" = "dev" ]; then
   npx next dev -p "$PORT" &
