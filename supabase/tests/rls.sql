@@ -763,3 +763,139 @@ begin
   raise exception 'ESTADOS_OK % pruebas pasaron', ok;
 end
 $pruebas_estados$;
+
+do $pruebas_tareas$
+declare
+  club_a uuid := gen_random_uuid();
+  club_b uuid := gen_random_uuid();
+  u_adm uuid := gen_random_uuid(); u_tes uuid := gen_random_uuid();
+  u_jug1 uuid := gen_random_uuid(); u_jug2 uuid := gen_random_uuid(); u_jug3 uuid := gen_random_uuid();
+  u_tesb uuid := gen_random_uuid();
+  m_adm uuid; m_tes uuid; m_jug1 uuid; m_jug2 uuid; m_jug3 uuid;
+  v_tarea uuid;
+  n int; ok int := 0;
+begin
+  insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite,Junior}'), (club_b, 'Club B', '{Open}');
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values
+    (club_a, 'Admin', 'adm@t.test', null, '{administrativo}'),
+    (club_a, 'Tesorera', 'tes@t.test', null, '{tesorero}'),
+    (club_a, 'Jugador 1', 'jug1@t.test', 'Élite', '{jugador}'),
+    (club_a, 'Jugador 2', 'jug2@t.test', 'Élite', '{jugador}'),
+    (club_a, 'Jugador 3', 'jug3@t.test', 'Junior', '{jugador}'),
+    (club_b, 'Tesorero B', 'tesb@t.test', 'Open', '{tesorero,administrativo,jugador}');
+  insert into auth.users (id, email) values
+    (u_adm, 'adm@t.test'), (u_tes, 'tes@t.test'), (u_jug1, 'jug1@t.test'), (u_jug2, 'jug2@t.test'),
+    (u_jug3, 'jug3@t.test'), (u_tesb, 'tesb@t.test');
+  select id into m_adm from public.miembros where auth_user_id = u_adm;
+  select id into m_tes from public.miembros where auth_user_id = u_tes;
+  select id into m_jug1 from public.miembros where auth_user_id = u_jug1;
+  select id into m_jug2 from public.miembros where auth_user_id = u_jug2;
+  select id into m_jug3 from public.miembros where auth_user_id = u_jug3;
+
+  -- ---------- admin A: crea una tarea de grupo (RPC) ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_tarea := public.crear_tarea(club_a, 'Entrega de uniformes', 'https://tally.so/f', current_date + 10, 'grupo', 'Élite');
+  select count(*) into n from public.tareas_miembros where tarea_id = v_tarea;
+  assert n = 2, format('solo los 2 jugadores Élite activos, hubo %s', n);  -- jug1, jug2
+  select count(*) into n from public.bitacora where tipo = 'tarea_creada' and club_id = club_a and actor_id = m_adm;
+  assert n = 1, 'bitácora registra la creación con el admin como actor';
+  ok := ok + 2;
+  -- link sin https se rechaza
+  begin
+    perform public.crear_tarea(club_a, 'Tarea mala', 'http://sin-https.test', current_date + 10, 'todos');
+    raise exception 'NO_FALLO link sin https';
+  exception when check_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- jugador 1 A: ve solo la suya y la marca ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug1, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.tareas; assert n = 1, format('ve solo la tarea asignada, vio %s', n);
+  select count(*) into n from public.tareas_miembros; assert n = 1, format('ve solo su fila, vio %s', n);
+  ok := ok + 2;
+  update public.tareas_miembros set completada_en = now() where tarea_id = v_tarea and miembro_id = m_jug1;
+  get diagnostics n = row_count;
+  assert n = 1, 'el jugador marca su propia tarea';
+  select count(*) into n from public.tareas_miembros where tarea_id = v_tarea and miembro_id = m_jug1 and completada_en is not null;
+  assert n = 1, 'completada_en queda guardada';
+  ok := ok + 1;
+  -- no puede marcar la de otro
+  update public.tareas_miembros set completada_en = now() where tarea_id = v_tarea and miembro_id = m_jug2;
+  get diagnostics n = row_count;
+  assert n = 0, 'NO_FALLO jugador 1 marcó la tarea de jugador 2';
+  ok := ok + 1;
+  -- el jugador no crea tareas
+  begin
+    perform public.crear_tarea(club_a, 'Tarea de jugador', 'https://x.test', current_date + 5, 'todos');
+    raise exception 'NO_FALLO jugador creó una tarea';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    insert into public.tareas (club_id, nombre, link, fecha_limite, alcance) values (club_a, 'x', 'https://x.test', current_date, 'todos');
+    raise exception 'NO_FALLO jugador insertó en tareas directamente';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- jugador 3 A: no le asignaron nada ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug3, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.tareas; assert n = 0, 'jugador 3 (Junior) no ve la tarea de Élite';
+  ok := ok + 1;
+  execute 'reset role';
+
+  -- ---------- tesorería A: lee pero no crea ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.tareas; assert n = 1, format('tesorería ve la tarea del club, vio %s', n);
+  ok := ok + 1;
+  begin
+    perform public.crear_tarea(club_a, 'Tarea de tesorería', 'https://x.test', current_date + 5, 'todos');
+    raise exception 'NO_FALLO tesorería creó una tarea';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  begin
+    insert into public.tareas (club_id, nombre, link, fecha_limite, alcance) values (club_a, 'x', 'https://x.test', current_date, 'todos');
+    raise exception 'NO_FALLO tesorería insertó en tareas directamente';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- admin A: cancela la tarea ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  perform public.cancelar_tarea(v_tarea);
+  select count(*) into n from public.tareas where id = v_tarea and estado = 'cancelada';
+  assert n = 1, 'la tarea queda cancelada';
+  select count(*) into n from public.bitacora where tipo = 'tarea_cancelada' and club_id = club_a;
+  assert n = 1, 'bitácora registra la cancelación';
+  ok := ok + 2;
+  begin
+    perform public.cancelar_tarea(v_tarea);
+    raise exception 'NO_FALLO recancelar una tarea';
+  exception when check_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- club B: aislamiento ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tesb, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.tareas; assert n = 0, 'B no ve las tareas de A';
+  select count(*) into n from public.tareas_miembros; assert n = 0, 'B no ve las asignaciones de A';
+  ok := ok + 2;
+  begin
+    perform public.cancelar_tarea(v_tarea);  -- tarea de A: RLS la vuelve invisible para B, aunque B también es administrativo
+    raise exception 'NO_FALLO administrador de B canceló una tarea de A';
+  exception when no_data_found then ok := ok + 1;
+  end;
+  update public.tareas_miembros set completada_en = now() where tarea_id = v_tarea and miembro_id = m_jug2;
+  get diagnostics n = row_count;
+  assert n = 0, 'NO_FALLO B marcó una asignación de A';
+  ok := ok + 1;
+  execute 'reset role';
+
+  raise exception 'TAREAS_OK % pruebas pasaron', ok;
+end
+$pruebas_tareas$;

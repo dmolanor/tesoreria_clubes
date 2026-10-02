@@ -7,6 +7,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { PendientesList } from "@/components/tesorero/pendientes-list"
 import { ProgressBar } from "@/components/progress-bar"
 import { ActivityPanel } from "@/components/activity-panel"
+import { TareasPendientes } from "@/components/tareas/tareas-pendientes"
 import { StatusDot } from "@/components/status-dot"
 
 export default async function TesoreroHome() {
@@ -153,6 +154,7 @@ export default async function TesoreroHome() {
           </Card>
         </div>
       </div>
+      <TareasPendientes clubId={s.club_id} />
     </div>
   )
 }

@@ -26,6 +26,7 @@ Lo primero que ve: su estado de cuenta como hero, no una tabla.
 - Botón primario: **Subir comprobante** — siempre visible, 1 clic desde aquí.
 - Estado del último comprobante subido, si hay uno pendiente/rechazado (con motivo si fue rechazado).
 - Debajo: detalle por evento (lo que ya estaba en el wireframe original), como sección secundaria, no como lo primero que se ve.
+- Sección **Tareas** (no financieras, ej. diligenciar una encuesta): cada una con su enlace (se abre en pestaña nueva) y un checkbox de hecha/no hecha — nada más, el jugador no edita ni comenta la tarea. Las hechas quedan atenuadas. El calendario de pagos también las marca, en su mes, con un ícono de check distinto al punto de los cobros.
 
 ### Tesorero
 Lo primero: el estado del mes de un vistazo, y solo después lo que necesita su acción *hoy*.
@@ -34,12 +35,14 @@ Lo primero: el estado del mes de un vistazo, y solo después lo que necesita su 
 - Comprobantes que requieren revisión humana (sin match de jugador o de pago, monto ambiguo, lectura automática fallida), no toda la bandeja — el resto vive en la vista de Comprobantes ordenado igual.
 - Jugadores en mora recientes (solo nombres, como ya se definió), con link a la vista completa.
 - El detalle de los totales agregados sigue en la vista de Conciliación, donde tiene contexto útil.
+- Tarjeta **Tareas pendientes** (solo lectura: tesorería no las crea) con el progreso de cada tarea activa ("N de M hechas") y quién falta, en una lista desplegable.
 
 ### Administrador
 Lo primero: qué requiere atención, no un conteo estático.
 - Eventos de cobro activos con bajo % de recaudo cerca de su fecha límite (los que sí necesitan seguimiento).
 - Cambios de estado de jugador recientes o pendientes de confirmar.
-- Acceso directo a "+ Nuevo evento de cobro" y "Cargar jugadores (Excel)".
+- Acceso directo a "+ Nuevo evento de cobro" y "Cargar jugadores (Excel)". El mismo diálogo tiene un selector "Cobro / Tarea": una tarea pide nombre, enlace, fecha límite y alcance, sin monto.
+- Tarjeta **Tareas pendientes** (igual que en tesorería), con la opción de cancelar una tarea desde ahí.
 - Conteos generales (jugadores activos por categoría, etc.) se mueven a la vista de Jugadores como encabezado de esa tabla, no a la pantalla de inicio.
 
 ## Progreso por evento y por jugador (tesorero)

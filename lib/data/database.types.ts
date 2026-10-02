@@ -745,35 +745,6 @@ export type Database = {
           },
         ]
       }
-      tarifas_estado: {
-        Row: {
-          club_id: string
-          estado: Database["public"]["Enums"]["estado_miembro"]
-          monto_mensual: number
-          updated_at: string
-        }
-        Insert: {
-          club_id: string
-          estado: Database["public"]["Enums"]["estado_miembro"]
-          monto_mensual: number
-          updated_at?: string
-        }
-        Update: {
-          club_id?: string
-          estado?: Database["public"]["Enums"]["estado_miembro"]
-          monto_mensual?: number
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "tarifas_estado_club_id_fkey"
-            columns: ["club_id"]
-            isOneToOne: false
-            referencedRelation: "clubes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       reglas_recordatorio: {
         Row: {
           activa: boolean
@@ -812,6 +783,142 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      tareas: {
+        Row: {
+          alcance: Database["public"]["Enums"]["alcance_cobro"]
+          categoria: string | null
+          club_id: string
+          creado_por: string | null
+          created_at: string
+          estado: Database["public"]["Enums"]["estado_tarea"]
+          fecha_limite: string
+          id: string
+          link: string
+          nombre: string
+          updated_at: string
+        }
+        Insert: {
+          alcance: Database["public"]["Enums"]["alcance_cobro"]
+          categoria?: string | null
+          club_id: string
+          creado_por?: string | null
+          created_at?: string
+          estado?: Database["public"]["Enums"]["estado_tarea"]
+          fecha_limite: string
+          id?: string
+          link: string
+          nombre: string
+          updated_at?: string
+        }
+        Update: {
+          alcance?: Database["public"]["Enums"]["alcance_cobro"]
+          categoria?: string | null
+          club_id?: string
+          creado_por?: string | null
+          created_at?: string
+          estado?: Database["public"]["Enums"]["estado_tarea"]
+          fecha_limite?: string
+          id?: string
+          link?: string
+          nombre?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tareas_club_id_creado_por_fkey"
+            columns: ["club_id", "creado_por"]
+            isOneToOne: false
+            referencedRelation: "estado_cuenta_miembros"
+            referencedColumns: ["club_id", "miembro_id"]
+          },
+          {
+            foreignKeyName: "tareas_club_id_creado_por_fkey"
+            columns: ["club_id", "creado_por"]
+            isOneToOne: false
+            referencedRelation: "miembros"
+            referencedColumns: ["club_id", "id"]
+          },
+          {
+            foreignKeyName: "tareas_club_id_fkey"
+            columns: ["club_id"]
+            isOneToOne: false
+            referencedRelation: "clubes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tareas_miembros: {
+        Row: {
+          club_id: string
+          completada_en: string | null
+          miembro_id: string
+          tarea_id: string
+        }
+        Insert: {
+          club_id: string
+          completada_en?: string | null
+          miembro_id: string
+          tarea_id: string
+        }
+        Update: {
+          club_id?: string
+          completada_en?: string | null
+          miembro_id?: string
+          tarea_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tareas_miembros_club_id_miembro_id_fkey"
+            columns: ["club_id", "miembro_id"]
+            isOneToOne: false
+            referencedRelation: "estado_cuenta_miembros"
+            referencedColumns: ["club_id", "miembro_id"]
+          },
+          {
+            foreignKeyName: "tareas_miembros_club_id_miembro_id_fkey"
+            columns: ["club_id", "miembro_id"]
+            isOneToOne: false
+            referencedRelation: "miembros"
+            referencedColumns: ["club_id", "id"]
+          },
+          {
+            foreignKeyName: "tareas_miembros_club_id_tarea_id_fkey"
+            columns: ["club_id", "tarea_id"]
+            isOneToOne: false
+            referencedRelation: "tareas"
+            referencedColumns: ["club_id", "id"]
+          },
+        ]
+      }
+      tarifas_estado: {
+        Row: {
+          club_id: string
+          estado: Database["public"]["Enums"]["estado_miembro"]
+          monto_mensual: number
+          updated_at: string
+        }
+        Insert: {
+          club_id: string
+          estado: Database["public"]["Enums"]["estado_miembro"]
+          monto_mensual: number
+          updated_at?: string
+        }
+        Update: {
+          club_id?: string
+          estado?: Database["public"]["Enums"]["estado_miembro"]
+          monto_mensual?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tarifas_estado_club_id_fkey"
+            columns: ["club_id"]
+            isOneToOne: false
+            referencedRelation: "clubes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -874,6 +981,7 @@ export type Database = {
         Returns: undefined
       }
       cancelar_evento: { Args: { p_evento_id: string }; Returns: number }
+      cancelar_tarea: { Args: { p_tarea_id: string }; Returns: undefined }
       condonar_obligacion: {
         Args: { p_motivo: string; p_obligacion_id: string }
         Returns: undefined
@@ -888,6 +996,18 @@ export type Database = {
           p_monto: number
           p_nombre: string
           p_tipo: Database["public"]["Enums"]["tipo_cobro"]
+        }
+        Returns: string
+      }
+      crear_tarea: {
+        Args: {
+          p_alcance: Database["public"]["Enums"]["alcance_cobro"]
+          p_categoria?: string
+          p_club_id: string
+          p_fecha_limite: string
+          p_link: string
+          p_miembro_ids?: string[]
+          p_nombre: string
         }
         Returns: string
       }
@@ -938,6 +1058,7 @@ export type Database = {
       estado_comprobante: "pendiente" | "aceptado" | "rechazado"
       estado_evento: "activo" | "cancelado"
       estado_miembro: "activo" | "lesionado" | "inactivo" | "retirado"
+      estado_tarea: "activa" | "cancelada"
       objetivo_bitacora:
         | "miembro"
         | "evento_cobro"
@@ -948,6 +1069,7 @@ export type Database = {
         | "egreso"
         | "club"
         | "obligacion"
+        | "tarea"
       origen_aplicacion: "propuesta" | "manual" | "saldo_a_favor"
       rol: "administrativo" | "tesorero" | "jugador"
       tipo_bitacora:
@@ -965,6 +1087,8 @@ export type Database = {
         | "egreso_anulado"
         | "tarifa_cambiada"
         | "obligacion_condonada"
+        | "tarea_creada"
+        | "tarea_cancelada"
       tipo_cobro: "mensualidad" | "afiliacion" | "torneo" | "uniforme" | "otro"
       tipo_recordatorio: "mensual" | "previo_vencimiento" | "acuerdo_pago"
       tipo_regla: "monto_exacto" | "evento_especifico" | "mas_antiguo_primero"
@@ -1108,6 +1232,7 @@ export const Constants = {
       estado_comprobante: ["pendiente", "aceptado", "rechazado"],
       estado_evento: ["activo", "cancelado"],
       estado_miembro: ["activo", "lesionado", "inactivo", "retirado"],
+      estado_tarea: ["activa", "cancelada"],
       objetivo_bitacora: [
         "miembro",
         "evento_cobro",
@@ -1118,6 +1243,7 @@ export const Constants = {
         "egreso",
         "club",
         "obligacion",
+        "tarea",
       ],
       origen_aplicacion: ["propuesta", "manual", "saldo_a_favor"],
       rol: ["administrativo", "tesorero", "jugador"],
@@ -1136,6 +1262,8 @@ export const Constants = {
         "egreso_anulado",
         "tarifa_cambiada",
         "obligacion_condonada",
+        "tarea_creada",
+        "tarea_cancelada",
       ],
       tipo_cobro: ["mensualidad", "afiliacion", "torneo", "uniforme", "otro"],
       tipo_recordatorio: ["mensual", "previo_vencimiento", "acuerdo_pago"],

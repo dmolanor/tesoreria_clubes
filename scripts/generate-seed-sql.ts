@@ -96,7 +96,7 @@ export function seedSql(db: Db): string {
 begin;
 select set_config('app.seed', 'on', true);  -- la bitácora se copia del seed, sin duplicar por triggers
 
-truncate public.bitacora, public.cuotas_acuerdo, public.acuerdos_pago, public.aplicaciones,
+truncate public.bitacora, public.tareas_miembros, public.tareas, public.cuotas_acuerdo, public.acuerdos_pago, public.aplicaciones,
   public.conciliaciones, public.egresos, public.comprobantes, public.obligaciones, public.reglas_conciliacion,
   public.tarifas_estado, public.eventos_cobro, public.miembros, public.clubes
   restart identity cascade;
@@ -143,6 +143,44 @@ truncate public.bitacora, public.cuotas_acuerdo, public.acuerdos_pago, public.ap
       acuerdos.flatMap((a) => a.cuotas.map((c) => [c.id, club.id, a.id, c.numero, c.fecha, c.monto, a.created_at])),
     )
   }
+  // Dos tareas demo (no financieras): una de grupo (Élite) y una para todos los jugadores activos.
+  // Algunos jugadores ya la marcaron como hecha, para mostrar el progreso en la tarjeta del admin/tesorero.
+  const jugadoresElite = db.usuarios.filter((u) => u.categoria === "Élite" && rolesDe(u.id).includes("jugador") && u.estado === "activo")
+  const jugadoresActivos = db.usuarios.filter((u) => rolesDe(u.id).includes("jugador") && u.estado === "activo")
+  const tareasDemo = [
+    {
+      id: "00000000-0000-4000-8000-d00000000001",
+      nombre: "Entrega de uniformes nuevos",
+      link: "https://forms.gle/raza-uniformes-2026",
+      fecha_limite: "2026-10-15",
+      alcance: "grupo" as const,
+      categoria: "Élite" as string | null,
+      asignados: jugadoresElite,
+      cada: 2, // la mitad ya la marcó
+      created_at: "2026-09-22T14:00:00.000Z",
+    },
+    {
+      id: "00000000-0000-4000-8000-d00000000002",
+      nombre: "Diligenciar encuesta de la liga",
+      link: "https://tally.so/r/raza-encuesta-liga",
+      fecha_limite: "2026-10-25",
+      alcance: "todos" as const,
+      categoria: null as string | null,
+      asignados: jugadoresActivos,
+      cada: 3, // uno de cada tres ya la marcó
+      created_at: "2026-09-24T09:00:00.000Z",
+    },
+  ]
+  sql += insert(
+    "tareas",
+    ["id", "club_id", "nombre", "link", "fecha_limite", "alcance", "categoria", "creado_por", "created_at"],
+    tareasDemo.map((t) => [t.id, club.id, t.nombre, t.link, t.fecha_limite, t.alcance, t.categoria, adminId, t.created_at]),
+  )
+  sql += insert(
+    "tareas_miembros",
+    ["tarea_id", "miembro_id", "club_id", "completada_en"],
+    tareasDemo.flatMap((t) => t.asignados.map((u, i) => [t.id, u.id, club.id, i % t.cada === 0 ? "2026-09-27T16:00:00.000Z" : null])),
+  )
   sql += insert(
     "comprobantes",
     ["id", "club_id", "miembro_id", "monto", "fecha_pago", "canal", "estado", "motivo_rechazo", "revisado_por", "revisado_en", "created_at"],
@@ -180,6 +218,16 @@ truncate public.bitacora, public.cuotas_acuerdo, public.acuerdos_pago, public.ap
       a.created_at,
     ]
   })
+  const bitacoraTareas: Val[][] = tareasDemo.map((t) => [
+    club.id,
+    "tarea_creada",
+    adminId,
+    "tarea",
+    t.id,
+    `Andrés Molina creó la tarea "${t.nombre}" (vence ${t.fecha_limite.split("-").reverse().join("/")})`,
+    { alcance: t.alcance, categoria: t.categoria },
+    t.created_at,
+  ])
   sql += insert(
     "bitacora",
     ["club_id", "tipo", "actor_id", "objetivo_tipo", "objetivo_id", "descripcion", "metadata", "created_at"],
@@ -188,6 +236,7 @@ truncate public.bitacora, public.cuotas_acuerdo, public.acuerdos_pago, public.ap
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
         .map((b) => [b.club_id, b.tipo, b.actor_id, objetivo[b.objetivo_tipo] ?? b.objetivo_tipo, b.objetivo_id, b.descripcion, b.metadata, b.created_at] as Val[]),
       ...bitacoraAcuerdos,
+      ...bitacoraTareas,
     ],
   )
   sql += "commit;\n"

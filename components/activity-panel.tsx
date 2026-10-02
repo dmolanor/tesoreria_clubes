@@ -24,6 +24,8 @@ const TIPO_LABEL: Record<TipoBitacora, string> = {
   acuerdo_pago_cambiado: "Acuerdo de pago",
   tarifa_cambiada: "Tarifa configurada",
   obligacion_condonada: "Obligación condonada",
+  tarea_creada: "Tarea creada",
+  tarea_cancelada: "Tarea cancelada",
 }
 
 /**

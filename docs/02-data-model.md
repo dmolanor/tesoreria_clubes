@@ -6,7 +6,7 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 
 ## Decisiones que moldean el esquema
 
-- **14 tablas, sin tablas "por si acaso".** A las 9 de v1 se sumaron `acuerdos_pago` y `cuotas_acuerdo` (planes de pago explícitos), `reglas_recordatorio` y `egresos` (salidas de plata para el cuadre mensual), y `tarifas_estado` (cuánto paga un jugador lesionado o inactivo). Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
+- **16 tablas, sin tablas "por si acaso".** A las 9 de v1 se sumaron `acuerdos_pago` y `cuotas_acuerdo` (planes de pago explícitos), `reglas_recordatorio` y `egresos` (salidas de plata para el cuadre mensual), `tarifas_estado` (cuánto paga un jugador lesionado o inactivo) y `tareas`/`tareas_miembros` (tareas no financieras, como diligenciar una encuesta o entregar el uniforme — mismo alcance que un evento de cobro, pero no mueven plata). Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
 - **`miembros` = persona dentro de un club** (reemplaza a `usuarios` + `roles_usuario` del diseño original). Los roles son un arreglo (`rol[]`): una persona puede ser jugadora y tesorera a la vez, que es un caso real desde el lanzamiento. El miembro existe *antes* de tener cuenta: se carga desde el Excel y `auth_user_id` se vincula solo, por correo, en su primer login con magic link. Una misma cuenta puede pertenecer a varios clubes (una fila por club).
 - **El saldo a favor se deriva, no se guarda.** `aplicaciones` registra qué parte de cada comprobante fue a qué obligación (reemplaza a `pagos_aplicados` + `saldo_a_favor`). El saldo a favor de un comprobante es su monto aceptado menos lo aplicado. Así no hay dos fuentes de verdad que sincronizar.
 - **En finanzas no se borra.** Una aplicación se *anula* (`anulada_en`, `anulada_motivo`). Cancelar un evento o prorratear anula aplicaciones, y el dinero vuelve solo al saldo a favor. Un egreso registrado por error también se anula (`anulado_en`) y deja de contar en el cuadre.
@@ -31,6 +31,8 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 | `cuotas_acuerdo` | Cuotas del acuerdo: `numero`, `fecha`, `monto` | unique `(acuerdo_id, numero)`; en cascada con el acuerdo; un trigger bloquea cambios si el acuerdo está cancelado |
 | `reglas_recordatorio` | Recordatorios del tesorero: `tipo` (mensual/previo_vencimiento/acuerdo_pago), `dia_mes` o `dias_antes`, `canal` preferido | checks por tipo; escritura solo de tesorería; sin bitácora (es configuración) |
 | `tarifas_estado` | Cuánto paga al mes un jugador lesionado o inactivo: `estado`, `monto_mensual` | `primary key (club_id, estado)`; solo lesionado e inactivo (activo usa el monto de la mensualidad, retirado es 0); escritura solo de administración |
+| `tareas` | Tarea no financiera asignada por administración: `nombre`, `link` (debe empezar por `https://`), `fecha_limite`, `alcance`/`categoria` (mismo patrón que `eventos_cobro`), `estado` (activa/cancelada) | `unique (club_id, id)`; solo administración crea y cancela |
+| `tareas_miembros` | Quién tiene que hacer cada tarea y si ya la marcó: `completada_en` | PK `(tarea_id, miembro_id)`; el jugador solo edita `completada_en` de su propia fila; los inserts solo entran por `crear_tarea` |
 | `bitacora` | Eventos de negocio: `tipo` (enum cerrado de 12 valores), `actor_id`, `objetivo_tipo/id`, `descripcion`, `metadata` | append-only (un trigger bloquea update/delete, incluso con service role); índice `(club_id, created_at desc, id desc)` para paginar por cursor |
 
 **Una sola cuenta bancaria por club.** Ni `conciliaciones` ni `egresos` distinguen cuentas: si un club llega a manejar varias, se agrega `cuenta` a ambas tablas y la conciliación pasa a ser por `(club_id, mes, cuenta)`.
@@ -43,10 +45,11 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 - **Los roles se leen de `miembros.roles` en cada consulta, nunca del JWT**: quitarle un rol a alguien aplica de inmediato.
 - **Grants por columna**: el jugador inserta sus comprobantes pero no puede tocar `estado`; nadie escribe `obligaciones.pagado`, `total_aceptado`, `total_egresos` ni la bitácora por API. De un egreso solo se actualiza `anulado_en`.
 - **Triggers para lo que RLS no expresa**: `revisado_por` y `creado_por` los fija la base (no se pueden suplantar), validaciones de aplicaciones, FIFO siempre último, club nunca sin admin.
-- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia, **registra y anula egresos**, registra acuerdos de pago, **condona obligaciones** y **es el único que configura reglas**. El jugador ve sus propios acuerdos pero no los crea ni los edita (tampoco el bot de WhatsApp: solo los consulta). El administrador crea y cancela eventos, gestiona jugadores (incluido su estado y la fecha efectiva), **configura las tarifas de lesionado/inactivo** y lee reglas, acuerdos, egresos y conciliación. El jugador no ve egresos ni tarifas. La bitácora la leen tesorería y administración.
+- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia, **registra y anula egresos**, registra acuerdos de pago, **condona obligaciones** y **es el único que configura reglas**. El jugador ve sus propios acuerdos pero no los crea ni los edita (tampoco el bot de WhatsApp: solo los consulta). El administrador crea y cancela eventos, gestiona jugadores (incluido su estado y la fecha efectiva), **configura las tarifas de lesionado/inactivo** y lee reglas, acuerdos, egresos y conciliación. También crea y cancela tareas (mismo alcance que un evento); tesorería solo las lee; el jugador ve y marca solo las que le asignaron. El jugador no ve egresos ni tarifas. La bitácora la leen tesorería y administración.
 - **Storage:** bucket privado `comprobantes`, ruta `{club_id}/{miembro_id}/{archivo}`. Cada jugador sube y lee su carpeta; tesorería y administración leen la del club. Los soportes de egresos van al mismo bucket en `{club_id}/egresos/{archivo}`: solo tesorería sube ahí, y tesorería y administración los leen con la misma política de lectura del club (un jugador no, porque `egresos` no es un id de miembro). Nadie edita ni borra archivos.
 
-Pruebas: `supabase/tests/rls.sql` (cuatro bloques: RLS general, Storage y prorrateo, egresos y cuadre, estados y tarifas; se ejecutan como postgres y se revierten solos).
+
+Pruebas: `supabase/tests/rls.sql` (bloques: RLS general, Storage y prorrateo, egresos y cuadre, estados y tarifas, tareas; se ejecutan como postgres y se revierten solos).
 
 ## Escrituras de negocio (RPC)
 
@@ -59,6 +62,7 @@ Las escrituras que tocan varias filas son funciones Postgres `security invoker` 
 - `reordenar_reglas`
 - `agregar_regla_evento`
 - `guardar_conciliacion`
+- `crear_tarea` / `cancelar_tarea`: mismo patrón de alcance que `crear_evento`/`cancelar_evento`, pero sin monto ni obligaciones — solo administración.
 
 El motor de reglas vive en TypeScript (`lib/engine/`): **propone**, y la base valida y escribe. Las operaciones simples (subir o rechazar un comprobante, activar una regla, editar un evento) son escrituras directas bajo RLS.
 
@@ -76,7 +80,7 @@ Los ingresos son los comprobantes aceptados cuya `fecha_pago` cae en el mes y lo
 
 ## Bitácora
 
-Solo eventos significativos, nunca lecturas. Registrar y anular un egreso son eventos (`egreso_registrado`, `egreso_anulado`, con el monto formateado). La escriben triggers, así que queda completa sin importar desde dónde se hizo el cambio. Para un club el volumen es de cientos de filas al mes. Si se vuelve multi-club grande, se evalúa particionar por `(club_id, created_at)`; por ahora no se optimiza por adelantado.
+Solo eventos significativos, nunca lecturas. Registrar y anular un egreso son eventos (`egreso_registrado`, `egreso_anulado`, con el monto formateado). Crear y cancelar una tarea también lo son (`tarea_creada`, `tarea_cancelada`); que un jugador la marque como hecha no se registra — es un check, no un evento de negocio (principio 5 de `CLAUDE.md`). La escriben triggers, así que queda completa sin importar desde dónde se hizo el cambio. Para un club el volumen es de cientos de filas al mes. Si se vuelve multi-club grande, se evalúa particionar por `(club_id, created_at)`; por ahora no se optimiza por adelantado.
 
 ## Fases siguientes (sin tablas vacías hoy)
 
