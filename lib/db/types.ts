@@ -19,6 +19,7 @@ export type AcuerdoPago = Tables<"acuerdos_pago">
 export type CuotaAcuerdo = Tables<"cuotas_acuerdo">
 export type TipoRecordatorio = Enums<"tipo_recordatorio">
 export type ReglaRecordatorio = Tables<"reglas_recordatorio">
+export type TarifaEstado = Tables<"tarifas_estado">
 
 export type EstadoCuenta = "al_dia" | "pendiente" | "mora"
 
@@ -35,6 +36,8 @@ export const TIPOS_BITACORA: readonly TipoBitacora[] = [
   "egreso_registrado",
   "egreso_anulado",
   "acuerdo_pago_cambiado",
+  "tarifa_cambiada",
+  "obligacion_condonada",
 ]
 
 export const TIPO_COBRO_LABEL: Record<TipoCobro, string> = {

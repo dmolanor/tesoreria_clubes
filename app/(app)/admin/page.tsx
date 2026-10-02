@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Send } from "lucide-react"
 import { pageSession } from "@/lib/auth/page"
-import { categoriasDelClub, eventosDelClub, miembrosSinCuenta, opcionesJugadores, progresoEventos } from "@/lib/db/admin"
+import { categoriasDelClub, eventosDelClub, miembrosSinCuenta, opcionesJugadores, progresoEventos, tarifasDelClub } from "@/lib/db/admin"
 import { diasEntre, formatCOP, formatFecha, hoyISO, relativoVencimiento } from "@/lib/format"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ProgressBar } from "@/components/progress-bar"
@@ -10,6 +10,7 @@ import { ImportarJugadores } from "@/components/admin/importar-jugadores"
 import { AgregarJugador } from "@/components/admin/agregar-jugador"
 import { ActivityPanel } from "@/components/activity-panel"
 import { ActionButton } from "@/components/action-button"
+import { TarifasEstado } from "@/components/admin/tarifas-estado"
 import { invitarPendientesAction } from "@/app/actions/jugadores"
 
 const UMBRAL_RECAUDO = 0.8 // por debajo de esto, un evento cercano a vencer necesita seguimiento
@@ -19,12 +20,13 @@ export default async function AdminHome() {
   const s = await pageSession("administrativo")
   const sb = s.supabase
   const hoy = hoyISO()
-  const [eventos, progreso, jugadores, categorias, sinCuenta, { data: cambios }] = await Promise.all([
+  const [eventos, progreso, jugadores, categorias, sinCuenta, tarifas, { data: cambios }] = await Promise.all([
     eventosDelClub(sb, s.club_id),
     progresoEventos(sb, s.club_id),
     opcionesJugadores(sb, s.club_id),
     categoriasDelClub(sb, s.club_id),
     miembrosSinCuenta(sb, s.club_id),
+    tarifasDelClub(sb, s.club_id),
     sb
       .from("bitacora")
       .select("id, objetivo_id, descripcion, created_at")
@@ -111,6 +113,8 @@ export default async function AdminHome() {
           )}
         </CardContent>
       </Card>
+
+      <TarifasEstado lesionado={tarifas.lesionado ?? null} inactivo={tarifas.inactivo ?? null} />
       <ActivityPanel />
     </div>
   )

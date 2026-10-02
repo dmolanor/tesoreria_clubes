@@ -745,6 +745,35 @@ export type Database = {
           },
         ]
       }
+      tarifas_estado: {
+        Row: {
+          club_id: string
+          estado: Database["public"]["Enums"]["estado_miembro"]
+          monto_mensual: number
+          updated_at: string
+        }
+        Insert: {
+          club_id: string
+          estado: Database["public"]["Enums"]["estado_miembro"]
+          monto_mensual: number
+          updated_at?: string
+        }
+        Update: {
+          club_id?: string
+          estado?: Database["public"]["Enums"]["estado_miembro"]
+          monto_mensual?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tarifas_estado_club_id_fkey"
+            columns: ["club_id"]
+            isOneToOne: false
+            referencedRelation: "clubes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reglas_recordatorio: {
         Row: {
           activa: boolean
@@ -845,6 +874,10 @@ export type Database = {
         Returns: undefined
       }
       cancelar_evento: { Args: { p_evento_id: string }; Returns: number }
+      condonar_obligacion: {
+        Args: { p_motivo: string; p_obligacion_id: string }
+        Returns: undefined
+      }
       crear_evento: {
         Args: {
           p_alcance: Database["public"]["Enums"]["alcance_cobro"]
@@ -904,7 +937,7 @@ export type Database = {
       estado_acuerdo: "activo" | "cancelado"
       estado_comprobante: "pendiente" | "aceptado" | "rechazado"
       estado_evento: "activo" | "cancelado"
-      estado_miembro: "activo" | "lesionado" | "retirado"
+      estado_miembro: "activo" | "lesionado" | "inactivo" | "retirado"
       objetivo_bitacora:
         | "miembro"
         | "evento_cobro"
@@ -913,6 +946,8 @@ export type Database = {
         | "regla"
         | "acuerdo_pago"
         | "egreso"
+        | "club"
+        | "obligacion"
       origen_aplicacion: "propuesta" | "manual" | "saldo_a_favor"
       rol: "administrativo" | "tesorero" | "jugador"
       tipo_bitacora:
@@ -928,6 +963,8 @@ export type Database = {
         | "acuerdo_pago_cambiado"
         | "egreso_registrado"
         | "egreso_anulado"
+        | "tarifa_cambiada"
+        | "obligacion_condonada"
       tipo_cobro: "mensualidad" | "afiliacion" | "torneo" | "uniforme" | "otro"
       tipo_recordatorio: "mensual" | "previo_vencimiento" | "acuerdo_pago"
       tipo_regla: "monto_exacto" | "evento_especifico" | "mas_antiguo_primero"
@@ -1070,7 +1107,7 @@ export const Constants = {
       estado_acuerdo: ["activo", "cancelado"],
       estado_comprobante: ["pendiente", "aceptado", "rechazado"],
       estado_evento: ["activo", "cancelado"],
-      estado_miembro: ["activo", "lesionado", "retirado"],
+      estado_miembro: ["activo", "lesionado", "inactivo", "retirado"],
       objetivo_bitacora: [
         "miembro",
         "evento_cobro",
@@ -1079,6 +1116,8 @@ export const Constants = {
         "regla",
         "acuerdo_pago",
         "egreso",
+        "club",
+        "obligacion",
       ],
       origen_aplicacion: ["propuesta", "manual", "saldo_a_favor"],
       rol: ["administrativo", "tesorero", "jugador"],
@@ -1095,6 +1134,8 @@ export const Constants = {
         "acuerdo_pago_cambiado",
         "egreso_registrado",
         "egreso_anulado",
+        "tarifa_cambiada",
+        "obligacion_condonada",
       ],
       tipo_cobro: ["mensualidad", "afiliacion", "torneo", "uniforme", "otro"],
       tipo_recordatorio: ["mensual", "previo_vencimiento", "acuerdo_pago"],

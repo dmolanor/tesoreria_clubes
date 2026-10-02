@@ -98,11 +98,16 @@ select set_config('app.seed', 'on', true);  -- la bitácora se copia del seed, s
 
 truncate public.bitacora, public.cuotas_acuerdo, public.acuerdos_pago, public.aplicaciones,
   public.conciliaciones, public.egresos, public.comprobantes, public.obligaciones, public.reglas_conciliacion,
-  public.eventos_cobro, public.miembros, public.clubes
+  public.tarifas_estado, public.eventos_cobro, public.miembros, public.clubes
   restart identity cascade;
 
 `
   sql += insert("clubes", ["id", "nombre", "categorias", "created_at"], [[club.id, club.nombre, ["Élite", "Junior"], club.created_at]])
+  sql += insert(
+    "tarifas_estado",
+    ["club_id", "estado", "monto_mensual", "updated_at"],
+    db.tarifas_estado.map((t) => [t.club_id, t.estado, t.monto_mensual, t.updated_at]),
+  )
   sql += insert(
     "miembros",
     ["id", "club_id", "nombre", "correo", "categoria", "estado", "roles", "created_at"],

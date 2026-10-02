@@ -381,10 +381,18 @@ export function cancelarEvento(db: Db, ctx: Ctx, id: string) {
   })
 }
 
-// TODO(club): la fórmula de prorrateo no está definida en los docs. Default:
-// proporcional a los días activos del mes, con un piso (el "monto mínimo que
-// aplica independientemente de si entrenan"). Confirmar con la tesorera.
-export const PRORRATEO_PISO = 0.5
+// Tarifa fija de lesionado/inactivo (las configura el club en `tarifas_estado`); activo usa el monto
+// del evento de mensualidad y retirado es 0. El prorrateo es incremental sobre la tarifa de cada
+// estado, no un piso fijo — ver `cambiar_estado_miembro` en supabase/migrations.
+export const TARIFA_LESIONADO = 40_000
+export const TARIFA_INACTIVO = 60_000
+
+function tarifaDe(estado: EstadoJugador, montoEvento: number): number {
+  if (estado === "activo") return montoEvento
+  if (estado === "lesionado") return TARIFA_LESIONADO
+  if (estado === "inactivo") return TARIFA_INACTIVO
+  return 0 // retirado
+}
 
 export function cambiarEstadoJugador(db: Db, ctx: Ctx, usuarioId: string, estado: EstadoJugador) {
   const u = db.usuarios.find((u) => u.id === usuarioId && u.club_id === ctx.club_id)
@@ -394,36 +402,36 @@ export function cambiarEstadoJugador(db: Db, ctx: Ctx, usuarioId: string, estado
   u.estado = estado
 
   const prorrateos: string[] = []
-  if (anterior === "activo") {
-    const hoy = diaLocal(ctx.now)
-    const mes = hoy.slice(0, 7)
-    const dia = Number(hoy.slice(8, 10))
-    const [y, m] = mes.split("-").map(Number)
-    const diasMes = new Date(y, m, 0).getDate()
-    // TODO(club): identificar mensualidades por nombre es provisional; agregar un tipo de evento al modelo.
-    const mensualidades = obligacionesActivas(db, u.id).filter((o) => {
-      const e = eventoDe(db, o)
-      return e.nombre.toLowerCase().startsWith("mensualidad") && e.fecha_limite.startsWith(mes)
-    })
-    for (const o of mensualidades) {
-      const nuevo = Math.max(Math.round((o.monto * PRORRATEO_PISO) / 100) * 100, Math.round((o.monto * dia) / diasMes / 100) * 100)
-      if (nuevo >= o.monto) continue
-      const pagado = pagadoObligacion(db, o.id)
-      prorrateos.push(`${eventoDe(db, o).nombre}: ${formatCOP(o.monto)} → ${formatCOP(nuevo)}`)
-      o.monto = nuevo
-      if (pagado > nuevo) {
-        db.saldo_a_favor.push({
-          id: ctx.newId(),
-          usuario_id: u.id,
-          monto: pagado - nuevo,
-          origen_comprobante_id: null,
-          consumido: false,
-          consumido_en_obligacion_id: null,
-          created_at: ctx.now,
-        })
-      }
-      recomputarEstado(db, o.id)
+  const hoy = diaLocal(ctx.now)
+  const mes = hoy.slice(0, 7)
+  const dia = Number(hoy.slice(8, 10))
+  const [y, m] = mes.split("-").map(Number)
+  const diasMes = new Date(y, m, 0).getDate()
+  const r = (diasMes - dia + 1) / diasMes
+  // TODO(club): identificar mensualidades por nombre es provisional; agregar un tipo de evento al modelo.
+  const mensualidades = obligacionesActivas(db, u.id).filter((o) => {
+    const e = eventoDe(db, o)
+    return e.nombre.toLowerCase().startsWith("mensualidad") && e.fecha_limite.startsWith(mes)
+  })
+  for (const o of mensualidades) {
+    const e = eventoDe(db, o)
+    const nuevo = Math.max(Math.round((o.monto - tarifaDe(anterior, e.monto) * r + tarifaDe(estado, e.monto) * r) / 100) * 100, 0)
+    if (nuevo === o.monto) continue
+    const pagado = pagadoObligacion(db, o.id)
+    prorrateos.push(`${e.nombre}: ${formatCOP(o.monto)} → ${formatCOP(nuevo)}`)
+    o.monto = nuevo
+    if (pagado > nuevo) {
+      db.saldo_a_favor.push({
+        id: ctx.newId(),
+        usuario_id: u.id,
+        monto: pagado - nuevo,
+        origen_comprobante_id: null,
+        consumido: false,
+        consumido_en_obligacion_id: null,
+        created_at: ctx.now,
+      })
     }
+    recomputarEstado(db, o.id)
   }
   log(db, ctx, {
     tipo: "jugador_estado_cambiado",
