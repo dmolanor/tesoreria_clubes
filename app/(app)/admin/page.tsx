@@ -9,6 +9,7 @@ import { NuevoEvento } from "@/components/admin/nuevo-evento"
 import { ImportarJugadores } from "@/components/admin/importar-jugadores"
 import { AgregarJugador } from "@/components/admin/agregar-jugador"
 import { ActivityPanel } from "@/components/activity-panel"
+import { TareasPendientes } from "@/components/tareas/tareas-pendientes"
 import { ActionButton } from "@/components/action-button"
 import { invitarPendientesAction } from "@/app/actions/jugadores"
 
@@ -112,6 +113,7 @@ export default async function AdminHome() {
         </CardContent>
       </Card>
       <ActivityPanel />
+      <TareasPendientes clubId={s.club_id} esAdmin />
     </div>
   )
 }
