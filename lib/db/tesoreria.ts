@@ -5,7 +5,7 @@ import type { EngineRule, PendingObligation, Proposal } from "@/lib/engine/types
 import { necesitaHumano } from "@/lib/revision"
 import type { Json } from "@/lib/data/database.types"
 import { cuadraConPendientes, diferenciaConPendientes } from "@/lib/aprobacion-lote"
-import { cuadreMes } from "@/lib/cuadre"
+import { cuadreMes, esCompensacion } from "@/lib/cuadre"
 import { egresosMes } from "@/lib/db/egresos"
 
 export interface PendienteConEvento extends PendingObligation {
@@ -138,19 +138,22 @@ export async function enMora(sb: Supabase, clubId: string, hoy: string) {
     .sort((a, b) => a.desde.localeCompare(b.desde))
 }
 
-/** Suma de comprobantes aceptados cuya fecha de pago cae en el mes (lo mismo que calcula la base). */
+/**
+ * Suma de comprobantes aceptados cuya fecha de pago cae en el mes (lo mismo que calcula la base).
+ * Las compensaciones de un cruce no son un ingreso real: se excluyen, igual que en la base.
+ */
 export async function totalAceptadoMes(sb: Supabase, clubId: string, mes: string) {
   const inicio = `${mes.slice(0, 7)}-01`
   const [y, m] = inicio.split("-").map(Number)
   const fin = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)
   const { data, error } = await sb
     .from("comprobantes")
-    .select("id, monto, estado")
+    .select("id, monto, estado, canal")
     .eq("club_id", clubId)
     .gte("fecha_pago", inicio)
     .lt("fecha_pago", fin)
   if (error) throw error
-  const filas = data ?? []
+  const filas = (data ?? []).filter((c) => !esCompensacion(c.canal))
   const pendientes = filas.filter((c) => c.estado === "pendiente")
   return {
     /** Comprobantes pendientes con fecha de pago en el mes (los que respalda el extracto de ese mes). */

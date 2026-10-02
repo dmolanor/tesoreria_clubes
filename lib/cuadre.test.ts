@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { cuadreMes, rangoMes } from "./cuadre"
+import { cuadreMes, esCompensacion, esEgresoDeCruce, rangoMes } from "./cuadre"
 
 describe("cuadreMes", () => {
   it("cuadra cuando el banco se movió lo mismo que ingresos − egresos", () => {
@@ -36,6 +36,19 @@ describe("cuadreMes", () => {
 
   it("redondea a centavos (numeric(14,2))", () => {
     expect(cuadreMes({ ingresos: 0.1 + 0.2, egresos: 0, saldoInicial: 0, saldoFinal: 0.3 }).diferencia).toBe(0)
+  })
+})
+
+describe("esCompensacion / esEgresoDeCruce", () => {
+  it("una compensación no es un ingreso real", () => {
+    expect(esCompensacion("compensacion")).toBe(true)
+    expect(esCompensacion("manual")).toBe(false)
+    expect(esCompensacion("wompi")).toBe(false)
+  })
+
+  it("un egreso con comprobante_id es el lado del egreso de un cruce", () => {
+    expect(esEgresoDeCruce("00000000-0000-4000-8000-000000000001")).toBe(true)
+    expect(esEgresoDeCruce(null)).toBe(false)
   })
 })
 

@@ -26,6 +26,7 @@ const TIPO_LABEL: Record<TipoBitacora, string> = {
   obligacion_condonada: "Obligación condonada",
   tarea_creada: "Tarea creada",
   tarea_cancelada: "Tarea cancelada",
+  cruce_registrado: "Cruce registrado",
 }
 
 /**

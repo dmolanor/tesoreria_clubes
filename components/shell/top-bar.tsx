@@ -37,6 +37,7 @@ export async function TopBar({ session }: { session: Session }) {
     tesorero: [
       { href: "/tesorero", label: "Inicio" },
       { href: "/tesorero/conciliacion", label: "Conciliación" },
+      { href: "/egresos", label: "Egresos" },
       { href: "/tesorero/mora", label: "Mora" },
       { href: "/tesorero/acuerdos", label: "Acuerdos" },
       { href: "/tesorero/comprobantes", label: "Comprobantes", badge: pendientes },
@@ -46,6 +47,7 @@ export async function TopBar({ session }: { session: Session }) {
       { href: "/admin", label: "Inicio" },
       { href: "/eventos", label: "Eventos de cobro" },
       { href: "/jugadores", label: "Jugadores" },
+      { href: "/egresos", label: "Egresos" },
     ],
   }
 

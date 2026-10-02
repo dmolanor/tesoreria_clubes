@@ -194,10 +194,13 @@ truncate public.bitacora, public.tareas_miembros, public.tareas, public.cuotas_a
     aplicaciones.map((a) => a.row),
   )
   // Antes que las conciliaciones: su trigger calcula `total_egresos` al insertarlas.
+  // Después que comprobantes: un cruce enlaza `comprobante_id` a un comprobante que ya existe.
   sql += insert(
     "egresos",
-    ["id", "club_id", "fecha", "monto", "concepto", "categoria", "creado_por", "anulado_en", "created_at"],
-    db.egresos.map((e) => [e.id, e.club_id, e.fecha, e.monto, e.concepto, e.categoria, e.creado_por, e.anulado_en, e.created_at]),
+    ["id", "club_id", "fecha", "monto", "concepto", "categoria", "categoria_otro", "evento_id", "comprobante_id", "creado_por", "anulado_en", "created_at"],
+    db.egresos.map((e) => [
+      e.id, e.club_id, e.fecha, e.monto, e.concepto, e.categoria, e.categoria_otro, e.evento_id, e.comprobante_id, e.creado_por, e.anulado_en, e.created_at,
+    ]),
   )
   sql += insert(
     "conciliaciones",

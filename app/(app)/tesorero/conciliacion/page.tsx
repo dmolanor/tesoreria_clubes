@@ -2,15 +2,11 @@ import Link from "next/link"
 import { pageSession } from "@/lib/auth/page"
 import { cuadreParaLote, totalAceptadoMes } from "@/lib/db/tesoreria"
 import { egresosMes } from "@/lib/db/egresos"
-import { urlsFirmadas } from "@/lib/db/cuenta"
-import { rangoMes } from "@/lib/cuadre"
 import { formatCOP, formatMes, hoyISO } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConciliacionForm } from "@/components/tesorero/conciliacion-form"
 import { AprobarLote } from "@/components/tesorero/aprobar-lote"
-import { EgresoForm } from "@/components/tesorero/egreso-form"
-import { EgresosList } from "@/components/tesorero/egresos-list"
 import { ActivityPanel } from "@/components/activity-panel"
 import { StatusDot } from "@/components/status-dot"
 import { cn } from "@/lib/utils"
@@ -34,11 +30,6 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
     cuadreParaLote(sb, s.club_id, mes),
   ])
   if (error) throw error
-  const soportes = await urlsFirmadas(sb, egresos.items.map((e) => e.soporte_path))
-  // El formulario de egresos solo acepta fechas del mes que se está cuadrando (y nunca futuras).
-  const { inicio, fin } = rangoMes(mes)
-  const ultimoDia = new Date(Date.parse(`${fin}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)
-  const fechaMax = ultimoDia < hoyISO() ? ultimoDia : hoyISO()
   const actual = historial?.find((c) => c.mes === mes)
   const anterior = historial?.find((c) => c.mes < mes)
 
@@ -73,6 +64,14 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
             </p>
           ) : null}
           <AprobarLote key={mes} mes={mes} pendientes={cuadre?.cuadra ? cuadre.pendientes : 0} />
+          <p className="text-[13px] text-muted-foreground">
+            {egresos.vigentes === 0
+              ? "Sin egresos registrados este mes."
+              : `${egresos.vigentes} ${egresos.vigentes === 1 ? "egreso" : "egresos"} por ${formatCOP(egresos.total)}, descontados del cuadre.`}{" "}
+            <Link href="/egresos" className="underline underline-offset-2 hover:text-foreground">
+              Ver egresos
+            </Link>
+          </p>
           <ConciliacionForm
             mes={mes}
             totalAceptado={resumen.total}
@@ -81,21 +80,6 @@ export default async function ConciliacionPage(props: PageProps<"/tesorero/conci
             saldoFinal={actual ? Number(actual.saldo_final) : null}
             notas={actual?.notas ?? null}
           />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Egresos de {formatMes(mes).toLowerCase()}</CardTitle>
-          <p className="text-[13px] text-muted-foreground">
-            {egresos.vigentes === 0
-              ? "Arriendo de cancha, árbitros, equipamiento o liga: lo que salga de la cuenta se descuenta del cuadre."
-              : `${egresos.vigentes} ${egresos.vigentes === 1 ? "egreso" : "egresos"} por ${formatCOP(egresos.total)}, descontados del cuadre.`}
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <EgresoForm min={inicio} max={fechaMax} />
-          <EgresosList items={egresos.items} soportes={soportes} />
         </CardContent>
       </Card>
 

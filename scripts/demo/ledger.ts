@@ -259,6 +259,7 @@ export function aceptarComprobante(db: Db, ctx: Ctx, comprobanteId: string, line
   c.revisado_por = ctx.actor_id
   c.revisado_en = ctx.now
   for (const oid of porObligacion.keys()) recomputarEstado(db, oid)
+  if (c.canal === "compensacion") return // el cruce ya queda en la bitácora con 'cruce_registrado'
 
   log(db, ctx, {
     tipo: "comprobante_aceptado",
@@ -566,33 +567,103 @@ export function reglasPorDefecto(ctx: Ctx): ReglaConciliacion[] {
 
 // ---------- Conciliación mensual ----------
 
-/** Suma de comprobantes aceptados cuya fecha de carga cae en el mes (≈ fecha de la transferencia). */
+/** Suma de comprobantes aceptados cuya fecha de carga cae en el mes (≈ fecha de la transferencia).
+ * Las compensaciones de un cruce no mueven el banco: se excluyen, igual que en la base. */
 export function totalAceptadoMes(db: Db, clubId: string, mes: string): number {
   const clubUsers = new Set(db.usuarios.filter((u) => u.club_id === clubId).map((u) => u.id))
   return db.comprobantes
-    .filter((c) => c.estado === "aceptado" && clubUsers.has(c.usuario_id) && diaLocal(c.fecha_carga).startsWith(mes.slice(0, 7)))
+    .filter(
+      (c) =>
+        c.estado === "aceptado" && c.canal !== "compensacion" && clubUsers.has(c.usuario_id) && diaLocal(c.fecha_carga).startsWith(mes.slice(0, 7)),
+    )
     .reduce((s, c) => s + c.monto_total, 0)
 }
 
-/** Suma de egresos no anulados cuya fecha cae en el mes (lo mismo que calcula la base). */
+/** Suma de egresos no anulados cuya fecha cae en el mes (lo mismo que calcula la base).
+ * El egreso de un cruce tampoco mueve el banco: se excluye, se anula con la compensación. */
 export function totalEgresosMes(db: Db, clubId: string, mes: string): number {
   return db.egresos
-    .filter((e) => e.club_id === clubId && !e.anulado_en && e.fecha.startsWith(mes.slice(0, 7)))
+    .filter((e) => e.club_id === clubId && !e.anulado_en && !e.comprobante_id && e.fecha.startsWith(mes.slice(0, 7)))
     .reduce((s, e) => s + e.monto, 0)
 }
 
 export function registrarEgreso(
   db: Db,
   ctx: Ctx,
-  input: { id: string; fecha: string; monto: number; concepto: string; categoria: CategoriaEgreso },
+  input: {
+    id: string
+    fecha: string
+    monto: number
+    concepto: string
+    categoria: CategoriaEgreso
+    categoria_otro?: string | null
+    evento_id?: string | null
+    comprobante_id?: string | null
+  },
 ) {
-  db.egresos.push({ ...input, club_id: ctx.club_id, creado_por: ctx.actor_id ?? "", anulado_en: null, created_at: ctx.now })
+  db.egresos.push({
+    ...input,
+    categoria_otro: input.categoria_otro ?? null,
+    evento_id: input.evento_id ?? null,
+    comprobante_id: input.comprobante_id ?? null,
+    club_id: ctx.club_id,
+    creado_por: ctx.actor_id ?? "",
+    anulado_en: null,
+    created_at: ctx.now,
+  })
+  if (input.comprobante_id) return // el cruce ya queda en la bitácora con 'cruce_registrado'
   log(db, ctx, {
     tipo: "egreso_registrado",
     objetivo_tipo: "egreso",
     objetivo_id: input.id,
     descripcion: `${nombreUsuario(db, ctx.actor_id)} registró un egreso de ${formatCOP(input.monto)}: ${input.concepto}`,
     metadata: { monto: input.monto, categoria: input.categoria, fecha: input.fecha },
+  })
+}
+
+/**
+ * Cruce de cuentas: un jugador que trabaja para el club (ej. entrena a cambio de un pago).
+ * Un comprobante de compensación (sin plata real) se acepta con la propuesta del motor —
+ * misma `aceptarComprobante` que usa la bandeja, nunca FIFO a mano— y un egreso de nómina
+ * enlazado a ese comprobante. Ambos se excluyen del cuadre: se anulan entre sí frente al banco.
+ */
+export function registrarCruce(
+  db: Db,
+  ctx: Ctx,
+  input: { comprobanteId: string; egresoId: string; usuario_id: string; monto: number; fecha: string; concepto: string },
+) {
+  db.comprobantes.push({
+    id: input.comprobanteId,
+    usuario_id: input.usuario_id,
+    archivo_url: null,
+    monto_total: input.monto,
+    canal: "compensacion",
+    fecha_carga: ctx.now,
+    estado: "pendiente",
+    motivo_rechazo: null,
+    revisado_por: null,
+    revisado_en: null,
+  })
+  const propuesta = proposeAllocation({
+    monto: input.monto,
+    pendientes: pendientesDe(db, input.usuario_id),
+    reglas: reglasDelClub(db, ctx.club_id),
+  })
+  aceptarComprobante(db, ctx, input.comprobanteId, propuesta.lineas)
+  registrarEgreso(db, ctx, {
+    id: input.egresoId,
+    fecha: input.fecha,
+    monto: input.monto,
+    concepto: input.concepto,
+    categoria: "nomina",
+    comprobante_id: input.comprobanteId,
+  })
+  log(db, ctx, {
+    tipo: "cruce_registrado",
+    objetivo_tipo: "comprobante",
+    objetivo_id: input.comprobanteId,
+    descripcion: `${nombreUsuario(db, ctx.actor_id)} registró un cruce de ${formatCOP(input.monto)} para ${nombreUsuario(db, input.usuario_id)}: ${input.concepto}`,
+    metadata: { monto: input.monto, usuario_id: input.usuario_id },
   })
 }
 
