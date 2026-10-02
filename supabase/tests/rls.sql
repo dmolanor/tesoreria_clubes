@@ -357,7 +357,7 @@ declare
   u_jug uuid := gen_random_uuid(); u_jug2 uuid := gen_random_uuid(); u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid();
   m_jug uuid; m_jug2 uuid;
   v_evento uuid; v_comp uuid;
-  v_hoy date; v_fecha date; v_esperado numeric;
+  v_hoy date; v_fecha date; v_esperado numeric; v_dias_mes numeric; v_r numeric;
   n int; v numeric; ok int := 0;
 begin
   insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}');
@@ -367,6 +367,8 @@ begin
   insert into auth.users (id, email) values (u_jug, 'jug@s.test'), (u_jug2, 'jug2@s.test'), (u_tes, 'tes@s.test'), (u_adm, 'adm@s.test');
   select id into m_jug from public.miembros where auth_user_id = u_jug;
   select id into m_jug2 from public.miembros where auth_user_id = u_jug2;
+  -- Tarifa de lesionado del club: el prorrateo nuevo la exige antes de cambiar a ese estado.
+  insert into public.tarifas_estado (club_id, estado, monto_mensual) values (club_a, 'lesionado', 40000);
 
   -- Storage: el jugador sube a su carpeta; no a la de otro; otro jugador no lo ve; tesorería sí.
   perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
@@ -405,18 +407,18 @@ begin
   execute 'set local role authenticated';
   perform public.cambiar_estado_miembro(m_jug, 'lesionado');
   select o.monto into v from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug;
-  assert v < 100000 and v >= 50000, format('mensualidad prorrateada con piso del 50%%, quedó %s', v);
-  -- Sin fecha efectiva se comporta como antes: prorratea con private.hoy del club.
+  -- Sin fecha efectiva se comporta igual: prorratea con private.hoy del club.
+  -- Fórmula incremental: nuevo = monto − tarifa(activo)·r + tarifa(lesionado)·r, r = días que quedan / días del mes.
   v_hoy := private.hoy(club_a);
-  v_esperado := least(100000, greatest(round(100000 * 0.5, -2),
-    round(100000 * extract(day from v_hoy)
-          / extract(day from (date_trunc('month', v_hoy) + interval '1 month - 1 day')), -2)));
-  assert v = v_esperado, format('sin fecha efectiva prorratea con hoy: esperado %s, quedó %s', v_esperado, v);
+  v_dias_mes := extract(day from (date_trunc('month', v_hoy) + interval '1 month - 1 day'));
+  v_r := (v_dias_mes - extract(day from v_hoy) + 1) / v_dias_mes;
+  v_esperado := round(100000 - 100000 * v_r + 40000 * v_r, -2);
+  assert v = v_esperado, format('prorrateo incremental sin fecha efectiva: esperado %s, quedó %s', v_esperado, v);
   select saldo_a_favor into v from public.estado_cuenta_miembros where miembro_id = m_jug;
   assert v > 0, 'el exceso pagado queda como saldo a favor';
   select count(*) into n from public.bitacora where tipo = 'jugador_estado_cambiado' and descripcion like '%prorrateo%';
   assert n = 1, 'la bitácora explica el prorrateo';
-  ok := ok + 4;
+  ok := ok + 3;
   execute 'reset role';
 
   -- Fecha efectiva: lesión el día 21 del mes pasado, registrada hoy, con esa mensualidad ya pagada.
@@ -441,8 +443,9 @@ begin
   assert n = 1, 'la fecha futura no cambió el estado';
   ok := ok + 1;
   perform public.cambiar_estado_miembro(m_jug2, 'lesionado', v_fecha);
-  v_esperado := greatest(round(100000 * 0.5, -2),
-    round(100000 * 21 / extract(day from (date_trunc('month', v_fecha) + interval '1 month - 1 day')), -2));
+  v_dias_mes := extract(day from (date_trunc('month', v_fecha) + interval '1 month - 1 day'));
+  v_r := (v_dias_mes - extract(day from v_fecha) + 1) / v_dias_mes;
+  v_esperado := round(100000 - 100000 * v_r + 40000 * v_r, -2);
   select o.monto into v from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug2;
   assert v = v_esperado, format('prorrateo al día 21 del mes de la fecha efectiva: esperado %s, quedó %s', v_esperado, v);
   select saldo_a_favor into v from public.estado_cuenta_miembros where miembro_id = m_jug2;
@@ -599,3 +602,164 @@ begin
   raise exception 'EGRESOS_OK % pruebas pasaron', ok;
 end
 $pruebas_egresos$;
+
+-- Estados con tarifas, "inactivo", bloqueo de retiro y condonación (cuarto bloque, mismo patrón).
+do $pruebas_estados$
+declare
+  club_a uuid := gen_random_uuid();
+  u_adm uuid := gen_random_uuid(); u_tes uuid := gen_random_uuid();
+  u_jug uuid := gen_random_uuid(); u_jug2 uuid := gen_random_uuid(); u_jug3 uuid := gen_random_uuid(); u_jug4 uuid := gen_random_uuid();
+  m_adm uuid; m_tes uuid; m_jug uuid; m_jug2 uuid; m_jug3 uuid; m_jug4 uuid;
+  v_evento1 uuid; v_evento2 uuid; v_evento3 uuid; v_obl_jug2 uuid; v_comp uuid;
+  v_dias_mes numeric; v_r numeric; v_esperado numeric; v_antes numeric;
+  n int; v numeric; ok int := 0;
+begin
+  insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}');
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values
+    (club_a, 'Adm', 'adm@t.test', null, '{administrativo}'), (club_a, 'Tes', 'tes@t.test', null, '{tesorero}'),
+    (club_a, 'Jugador', 'jug@t.test', 'Élite', '{jugador}');
+  insert into auth.users (id, email) values (u_adm, 'adm@t.test'), (u_tes, 'tes@t.test'), (u_jug, 'jug@t.test');
+  select id into m_adm from public.miembros where auth_user_id = u_adm;
+  select id into m_tes from public.miembros where auth_user_id = u_tes;
+  select id into m_jug from public.miembros where auth_user_id = u_jug;
+
+  -- Mensualidad de un mes pasado de 30 días (abril), independiente de "hoy".
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_evento1 := public.crear_evento(club_a, 'Mensualidad abril', 'mensualidad', 160000, '2020-04-10', 'todos');
+
+  -- Sin tarifa configurada: el cambio de estado se rechaza con un mensaje claro.
+  begin
+    perform public.cambiar_estado_miembro(m_jug, 'lesionado', '2020-04-16');
+    raise exception 'NO_FALLO cambió a lesionado sin tarifa configurada';
+  exception when check_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  insert into public.tarifas_estado (club_id, estado, monto_mensual) values
+    (club_a, 'lesionado', 40000), (club_a, 'inactivo', 60000);
+
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- 160.000 → lesionado el día 16 de un mes de 30 días: 160000 − 160000·(15/30) + 40000·(15/30) = 100.000.
+  perform public.cambiar_estado_miembro(m_jug, 'lesionado', '2020-04-16');
+  select o.monto into v from public.obligaciones o where o.evento_id = v_evento1 and o.miembro_id = m_jug;
+  assert v = 100000, format('160.000 → lesionado día 16/30 debía quedar en 100.000, quedó %s', v);
+  ok := ok + 1;
+
+  -- Dos cambios en el mismo mes: lesionado → inactivo el día 21.
+  v_dias_mes := 30;
+  v_r := (v_dias_mes - 21 + 1) / v_dias_mes;
+  v_esperado := round(v - 40000 * v_r + 60000 * v_r, -2);
+  perform public.cambiar_estado_miembro(m_jug, 'inactivo', '2020-04-21');
+  select o.monto into v from public.obligaciones o where o.evento_id = v_evento1 and o.miembro_id = m_jug;
+  assert v = v_esperado, format('lesionado → inactivo el día 21: esperado %s, quedó %s', v_esperado, v);
+  ok := ok + 1;
+
+  -- Vuelta a activo: sube el monto (tarifa de activo = monto del evento, 160.000).
+  v_antes := v;
+  v_r := (v_dias_mes - 25 + 1) / v_dias_mes;
+  v_esperado := round(v_antes - 60000 * v_r + 160000 * v_r, -2);
+  perform public.cambiar_estado_miembro(m_jug, 'activo', '2020-04-25');
+  select o.monto into v from public.obligaciones o where o.evento_id = v_evento1 and o.miembro_id = m_jug;
+  assert v = v_esperado and v > v_antes, format('inactivo → activo el día 25: esperado %s (> %s), quedó %s', v_esperado, v_antes, v);
+  ok := ok + 1;
+
+  -- Jugadores para el bloqueo de retiro (como postgres, igual que el resto de datos del bloque).
+  execute 'reset role';
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values
+    (club_a, 'Jugador 2', 'jug2@t.test', 'Élite', '{jugador}'), (club_a, 'Jugador 3', 'jug3@t.test', 'Élite', '{jugador}');
+  insert into auth.users (id, email) values (u_jug2, 'jug2@t.test'), (u_jug3, 'jug3@t.test');
+  select id into m_jug2 from public.miembros where auth_user_id = u_jug2;
+  select id into m_jug3 from public.miembros where auth_user_id = u_jug3;
+
+  -- Torneo (no mensualidad): el prorrateo por cambio de estado no lo toca, así que la deuda
+  -- queda intacta para probar el bloqueo de retiro sin que el propio prorrateo la borre.
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_evento2 := public.crear_evento(club_a, 'Torneo', 'torneo', 50000, current_date + 10, 'todos');
+  select id into v_obl_jug2 from public.obligaciones where evento_id = v_evento2 and miembro_id = m_jug2;
+  execute 'reset role';
+
+  -- jug3 queda con saldo a favor (paga 70.000 contra una deuda de 50.000).
+  insert into public.comprobantes (club_id, miembro_id, monto, estado, revisado_en) values (club_a, m_jug3, 70000, 'aceptado', now())
+  returning id into v_comp;
+  insert into public.aplicaciones (club_id, comprobante_id, obligacion_id, monto, origen)
+  select club_a, v_comp, o.id, 50000, 'manual' from public.obligaciones o where o.evento_id = v_evento2 and o.miembro_id = m_jug3;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  -- Retiro bloqueado: jug2 debe 50.000.
+  begin
+    perform public.cambiar_estado_miembro(m_jug2, 'retirado');
+    raise exception 'NO_FALLO retiró a alguien con deuda';
+  exception when check_violation then ok := ok + 1;
+  end;
+  -- Retiro bloqueado: jug3 tiene 20.000 a favor.
+  begin
+    perform public.cambiar_estado_miembro(m_jug3, 'retirado');
+    raise exception 'NO_FALLO retiró a alguien con saldo a favor';
+  exception when check_violation then ok := ok + 1;
+  end;
+  -- El admin no condona (solo tesorería).
+  begin
+    perform public.condonar_obligacion(v_obl_jug2, 'Se retira del club');
+    raise exception 'NO_FALLO el admin condonó una obligación';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- La tesorería condona la deuda de jug2 y el retiro queda permitido.
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  perform public.condonar_obligacion(v_obl_jug2, 'Se retira del club');
+  select monto into v from public.obligaciones where id = v_obl_jug2;
+  assert v = 0, format('condonar deja monto = pagado (0), quedó %s', v);
+  select count(*) into n from public.bitacora
+  where tipo = 'obligacion_condonada' and objetivo_id = v_obl_jug2 and metadata->>'motivo' = 'Se retira del club';
+  assert n = 1, 'la bitácora registra la condonación con el motivo';
+  ok := ok + 2;
+  execute 'reset role';
+
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  perform public.cambiar_estado_miembro(m_jug2, 'retirado');
+  select count(*) into n from public.miembros where id = m_jug2 and estado = 'retirado';
+  assert n = 1, 'retiro permitido tras condonar la deuda';
+  ok := ok + 1;
+
+  -- crear_evento de mensualidad también cobra a los lesionados, a su tarifa.
+  execute 'reset role';
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values (club_a, 'Jugador 4', 'jug4@t.test', 'Élite', '{jugador}');
+  insert into auth.users (id, email) values (u_jug4, 'jug4@t.test');
+  select id into m_jug4 from public.miembros where auth_user_id = u_jug4;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  perform public.cambiar_estado_miembro(m_jug4, 'lesionado');
+  v_evento3 := public.crear_evento(club_a, 'Mensualidad nueva', 'mensualidad', 90000, current_date + 5, 'todos');
+  select count(*) into n from public.obligaciones where evento_id = v_evento3;
+  assert n = 3, format('mensualidad para activos + lesionados con tarifa (jug, jug3, jug4), hubo %s', n);
+  select monto into v from public.obligaciones where evento_id = v_evento3 and miembro_id = m_jug4;
+  assert v = 40000, format('el lesionado paga su tarifa (40.000), quedó %s', v);
+  ok := ok + 2;
+  execute 'reset role';
+
+  -- El jugador no configura tarifas.
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.tarifas_estado (club_id, estado, monto_mensual) values (club_a, 'lesionado', 1);
+    raise exception 'NO_FALLO el jugador insertó una tarifa';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  update public.tarifas_estado set monto_mensual = 1 where club_id = club_a;
+  get diagnostics n = row_count;
+  assert n = 0, 'NO_FALLO el jugador editó una tarifa';
+  ok := ok + 1;
+  execute 'reset role';
+
+  raise exception 'ESTADOS_OK % pruebas pasaron', ok;
+end
+$pruebas_estados$;

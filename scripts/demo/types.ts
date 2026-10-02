@@ -7,7 +7,7 @@ export type IsoDate = string // 'YYYY-MM-DD'
 export type IsoDateTime = string
 
 export type Categoria = "Élite" | "Junior"
-export type EstadoJugador = "activo" | "lesionado" | "retirado"
+export type EstadoJugador = "activo" | "lesionado" | "inactivo" | "retirado"
 export type Rol = "administrativo" | "tesorero" | "jugador"
 
 export interface Club {
@@ -137,6 +137,14 @@ export interface Egreso {
   created_at: IsoDateTime
 }
 
+/** Cuánto paga al mes un jugador lesionado o inactivo (activo usa el monto de la mensualidad; retirado es 0). */
+export interface TarifaEstado {
+  club_id: Uuid
+  estado: "lesionado" | "inactivo"
+  monto_mensual: number
+  updated_at: IsoDateTime
+}
+
 // Enum cerrado — agregar un valor es una decisión deliberada (docs/02-data-model.md).
 export const TIPOS_BITACORA = [
   "evento_cobro_creado",
@@ -150,6 +158,8 @@ export const TIPOS_BITACORA = [
   "regla_conciliacion_cambiada",
   "egreso_registrado",
   "egreso_anulado",
+  "tarifa_cambiada",
+  "obligacion_condonada",
 ] as const
 export type TipoBitacora = (typeof TIPOS_BITACORA)[number]
 
@@ -158,7 +168,7 @@ export interface Bitacora {
   club_id: Uuid
   tipo: TipoBitacora
   actor_id: Uuid | null
-  objetivo_tipo: "usuario" | "evento_cobro" | "comprobante" | "conciliacion" | "regla" | "egreso"
+  objetivo_tipo: "usuario" | "evento_cobro" | "comprobante" | "conciliacion" | "regla" | "egreso" | "club" | "obligacion"
   objetivo_id: Uuid
   descripcion: string
   metadata: Record<string, unknown>
@@ -178,6 +188,7 @@ export interface Db {
   reglas_conciliacion: ReglaConciliacion[]
   conciliaciones: Conciliacion[]
   egresos: Egreso[]
+  tarifas_estado: TarifaEstado[]
   bitacora: Bitacora[]
 }
 

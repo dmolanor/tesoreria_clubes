@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StatusDot } from "@/components/status-dot"
 import { EstadoSelect } from "@/components/admin/estado-select"
 import { RolesEditor } from "@/components/admin/roles-editor"
+import { CondonarObligacion } from "@/components/condonar-obligacion"
 import { cn } from "@/lib/utils"
 
 export default async function JugadorDetalle(props: PageProps<"/jugadores/[id]">) {
@@ -24,6 +25,7 @@ export default async function JugadorDetalle(props: PageProps<"/jugadores/[id]">
   ])
   const urls = await urlsFirmadas(sb, comprobantes.map((c) => c.archivo_path))
   const esAdmin = s.roles.includes("administrativo")
+  const esTesorero = s.roles.includes("tesorero")
   const pagadas = obligaciones.filter((x) => x.saldo === 0).length
 
   return (
@@ -88,7 +90,14 @@ export default async function JugadorDetalle(props: PageProps<"/jugadores/[id]">
                   <TableCell>{formatFecha(o.evento.fecha_limite, true)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCOP(o.monto)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCOP(o.pagado)}</TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">{o.saldo ? formatCOP(o.saldo) : "—"}</TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {o.saldo ? formatCOP(o.saldo) : "—"}
+                    {o.saldo > 0 && esTesorero ? (
+                      <span className="block">
+                        <CondonarObligacion obligacionId={o.id} saldo={o.saldo} />
+                      </span>
+                    ) : null}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

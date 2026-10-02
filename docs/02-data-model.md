@@ -6,7 +6,7 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 
 ## Decisiones que moldean el esquema
 
-- **13 tablas, sin tablas "por si acaso".** A las 9 de v1 se sumaron `acuerdos_pago` y `cuotas_acuerdo` (planes de pago explícitos) `reglas_recordatorio` y `egresos` (salidas de plata para el cuadre mensual). Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
+- **14 tablas, sin tablas "por si acaso".** A las 9 de v1 se sumaron `acuerdos_pago` y `cuotas_acuerdo` (planes de pago explícitos), `reglas_recordatorio` y `egresos` (salidas de plata para el cuadre mensual), y `tarifas_estado` (cuánto paga un jugador lesionado o inactivo). Lo que el futuro necesita se resolvió con columnas (`canal`, `origen_ref`, `extraccion`, `telefono`), no con tablas vacías. Ver "Fases siguientes".
 - **`miembros` = persona dentro de un club** (reemplaza a `usuarios` + `roles_usuario` del diseño original). Los roles son un arreglo (`rol[]`): una persona puede ser jugadora y tesorera a la vez, que es un caso real desde el lanzamiento. El miembro existe *antes* de tener cuenta: se carga desde el Excel y `auth_user_id` se vincula solo, por correo, en su primer login con magic link. Una misma cuenta puede pertenecer a varios clubes (una fila por club).
 - **El saldo a favor se deriva, no se guarda.** `aplicaciones` registra qué parte de cada comprobante fue a qué obligación (reemplaza a `pagos_aplicados` + `saldo_a_favor`). El saldo a favor de un comprobante es su monto aceptado menos lo aplicado. Así no hay dos fuentes de verdad que sincronizar.
 - **En finanzas no se borra.** Una aplicación se *anula* (`anulada_en`, `anulada_motivo`). Cancelar un evento o prorratear anula aplicaciones, y el dinero vuelve solo al saldo a favor. Un egreso registrado por error también se anula (`anulado_en`) y deja de contar en el cuadre.
@@ -19,7 +19,7 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 | Tabla | Qué guarda | Claves / reglas |
 |---|---|---|
 | `clubes` | Club, `categorias text[]`, `zona_horaria`, `moneda` | — |
-| `miembros` | Persona en un club: `nombre`, `correo citext`, `telefono` (E.164, WhatsApp), `categoria`, `estado` (activo/lesionado/retirado), `roles rol[]`, `auth_user_id` | unique `(club_id, correo)`; al menos un rol; el club siempre conserva un administrador |
+| `miembros` | Persona en un club: `nombre`, `correo citext`, `telefono` (E.164, WhatsApp), `categoria`, `estado` (activo/lesionado/inactivo/retirado), `roles rol[]`, `auth_user_id` | unique `(club_id, correo)`; al menos un rol; el club siempre conserva un administrador |
 | `eventos_cobro` | Cobro: `tipo` (mensualidad/afiliacion/torneo/uniforme/otro), `monto`, `fecha_limite`, `alcance` (todos/grupo/individual), `categoria`, `estado` | `categoria` solo si alcance = grupo; "individual" = las obligaciones mismas; un evento cancelado no se reactiva |
 | `obligaciones` | Deuda de un miembro en un evento: `monto`, `pagado` (lo mantiene un trigger), `estado` (columna generada: pendiente/parcial/pagado) | unique `(evento_id, miembro_id)`; `0 ≤ pagado ≤ monto` |
 | `comprobantes` | Pago reportado: `monto`, `fecha_pago` (fecha de la transferencia; la usa la conciliación), `archivo_path` (Storage), `canal` (manual/whatsapp/wompi), `origen_ref`, `extraccion` (OCR), `estado`, `motivo_rechazo`, `revisado_por/en` | unique `(club_id, canal, origen_ref)` = idempotencia de webhooks; rechazar exige motivo; no se re-revisa |
@@ -30,6 +30,7 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 | `acuerdos_pago` | Plan de pagos pactado con un jugador para cubrir una obligación: `miembro_id`, `obligacion_id`, `notas`, `estado` (activo/cancelado) | unique `(club_id, id)`; FKs compuestas; un solo acuerdo activo por obligación (índice parcial); un trigger exige que el acuerdo y la deuda sean del mismo jugador |
 | `cuotas_acuerdo` | Cuotas del acuerdo: `numero`, `fecha`, `monto` | unique `(acuerdo_id, numero)`; en cascada con el acuerdo; un trigger bloquea cambios si el acuerdo está cancelado |
 | `reglas_recordatorio` | Recordatorios del tesorero: `tipo` (mensual/previo_vencimiento/acuerdo_pago), `dia_mes` o `dias_antes`, `canal` preferido | checks por tipo; escritura solo de tesorería; sin bitácora (es configuración) |
+| `tarifas_estado` | Cuánto paga al mes un jugador lesionado o inactivo: `estado`, `monto_mensual` | `primary key (club_id, estado)`; solo lesionado e inactivo (activo usa el monto de la mensualidad, retirado es 0); escritura solo de administración |
 | `bitacora` | Eventos de negocio: `tipo` (enum cerrado de 12 valores), `actor_id`, `objetivo_tipo/id`, `descripcion`, `metadata` | append-only (un trigger bloquea update/delete, incluso con service role); índice `(club_id, created_at desc, id desc)` para paginar por cursor |
 
 **Una sola cuenta bancaria por club.** Ni `conciliaciones` ni `egresos` distinguen cuentas: si un club llega a manejar varias, se agrega `cuenta` a ambas tablas y la conciliación pasa a ser por `(club_id, mes, cuenta)`.
@@ -42,10 +43,10 @@ Todo está aislado por `club_id` para soportar multi-club sin mezclar datos. **R
 - **Los roles se leen de `miembros.roles` en cada consulta, nunca del JWT**: quitarle un rol a alguien aplica de inmediato.
 - **Grants por columna**: el jugador inserta sus comprobantes pero no puede tocar `estado`; nadie escribe `obligaciones.pagado`, `total_aceptado`, `total_egresos` ni la bitácora por API. De un egreso solo se actualiza `anulado_en`.
 - **Triggers para lo que RLS no expresa**: `revisado_por` y `creado_por` los fija la base (no se pueden suplantar), validaciones de aplicaciones, FIFO siempre último, club nunca sin admin.
-- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia, **registra y anula egresos**, registra acuerdos de pago y **es el único que configura reglas**. El jugador ve sus propios acuerdos pero no los crea ni los edita (tampoco el bot de WhatsApp: solo los consulta). El administrador crea y cancela eventos y gestiona jugadores, y lee reglas, acuerdos, egresos y conciliación. El jugador no ve egresos. La bitácora la leen tesorería y administración.
+- **Quién hace qué:** el jugador ve lo suyo y sube comprobantes. El tesorero revisa, aplica, concilia, **registra y anula egresos**, registra acuerdos de pago, **condona obligaciones** y **es el único que configura reglas**. El jugador ve sus propios acuerdos pero no los crea ni los edita (tampoco el bot de WhatsApp: solo los consulta). El administrador crea y cancela eventos, gestiona jugadores (incluido su estado y la fecha efectiva), **configura las tarifas de lesionado/inactivo** y lee reglas, acuerdos, egresos y conciliación. El jugador no ve egresos ni tarifas. La bitácora la leen tesorería y administración.
 - **Storage:** bucket privado `comprobantes`, ruta `{club_id}/{miembro_id}/{archivo}`. Cada jugador sube y lee su carpeta; tesorería y administración leen la del club. Los soportes de egresos van al mismo bucket en `{club_id}/egresos/{archivo}`: solo tesorería sube ahí, y tesorería y administración los leen con la misma política de lectura del club (un jugador no, porque `egresos` no es un id de miembro). Nadie edita ni borra archivos.
 
-Pruebas: `supabase/tests/rls.sql` (tres bloques: RLS general, Storage y prorrateo, egresos y cuadre; se ejecutan como postgres y se revierten solos).
+Pruebas: `supabase/tests/rls.sql` (cuatro bloques: RLS general, Storage y prorrateo, egresos y cuadre, estados y tarifas; se ejecutan como postgres y se revierten solos).
 
 ## Escrituras de negocio (RPC)
 
@@ -53,7 +54,8 @@ Las escrituras que tocan varias filas son funciones Postgres `security invoker` 
 - `aceptar_comprobante`
 - `crear_evento` (aplica saldos a favor existentes)
 - `cancelar_evento`
-- `cambiar_estado_miembro(miembro, estado, fecha_efectiva)`: al dejar de estar activo prorratea la mensualidad del mes de la fecha efectiva, proporcional a los días hasta esa fecha y con el piso de `private.prorrateo_piso()`. La fecha es opcional (por defecto, hoy en la zona horaria del club) y no puede ser futura. Si cae en un mes ya pagado completo, el monto baja igual y el excedente queda como saldo a favor del jugador. Entre estados no activos o hacia activo la fecha solo queda en la bitácora ("desde el 21/09/2026").
+- `cambiar_estado_miembro(miembro, estado, fecha_efectiva)`: ante cualquier transición (activo↔lesionado↔inactivo↔retirado) prorratea la mensualidad del mes de la fecha efectiva de forma incremental: `nuevo = monto_actual − tarifa(anterior)·r + tarifa(nuevo)·r`, con `r` la fracción de días que quedan del mes. `tarifa(activo)` es el monto del evento de mensualidad; `tarifa(lesionado|inactivo)` viene de `tarifas_estado` (sin configurar, error claro); `tarifa(retirado)` es 0. La fecha es opcional (por defecto, hoy en la zona horaria del club) y no puede ser futura. Si cae en un mes ya pagado completo, el monto baja igual y el excedente queda como saldo a favor del jugador. Retirar a alguien que queda debiendo o con saldo a favor sin resolver se rechaza (y revierte el prorrateo que ya corrió).
+- `condonar_obligacion(obligacion, motivo)`: solo tesorería; deja la obligación en lo ya pagado (el saldo pendiente queda en $0, con motivo obligatorio en la bitácora).
 - `reordenar_reglas`
 - `agregar_regla_evento`
 - `guardar_conciliacion`
@@ -83,7 +85,9 @@ Solo eventos significativos, nunca lecturas. Registrar y anular un egreso son ev
 - **Wompi (fase 7):** columna `comision` en `comprobantes` y un webhook idempotente por `origen_ref`.
 - **Alta de clubes nuevos:** no requiere tablas.
 
-## Pendiente de confirmar con el club (`TODO(club)` en el SQL)
+## Decisiones ya resueltas sobre estados y tarifas
 
-- Fórmula del prorrateo: hoy es proporcional a los días del mes, con un piso del 50% (`private.prorrateo_piso()`).
-- Si los lesionados reciben cobros nuevos: hoy solo los activos, salvo selección individual.
+Estas dos preguntas estaban abiertas como `TODO(club)` y ya se resolvieron:
+
+- **Fórmula del prorrateo:** ya no tiene un piso fijo. Es incremental sobre la tarifa de cada estado (ver `cambiar_estado_miembro` arriba) y se configura por club en `tarifas_estado`.
+- **Si los lesionados/inactivos reciben cobros nuevos:** sí, para `mensualidad` con alcance "todos" o "grupo" — a su tarifa, no al monto completo (sin obligación si el club no configuró la tarifa, o la dejó en 0). Los demás tipos de cobro siguen siendo solo para activos, salvo selección individual.

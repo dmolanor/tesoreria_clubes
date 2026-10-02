@@ -11,11 +11,13 @@ import { cambiarEstadoAction } from "@/app/actions/jugadores"
 import { hoyISO } from "@/lib/format"
 import type { EstadoMiembro as EstadoJugador } from "@/lib/db/types"
 
-const ETIQUETA: Record<EstadoJugador, string> = { activo: "Activo", lesionado: "Lesionado", retirado: "Retirado" }
+const ETIQUETA: Record<EstadoJugador, string> = { activo: "Activo", lesionado: "Lesionado", inactivo: "Inactivo", retirado: "Retirado" }
 
 /**
- * Pasar a activo aplica de inmediato. Lesionado o retirado pide la fecha real del cambio (por defecto
- * hoy), porque la base prorratea la mensualidad del mes de esa fecha.
+ * Pasar a activo aplica de inmediato. Lesionado, inactivo o retirado pide la fecha real del cambio
+ * (por defecto hoy), porque la base prorratea la mensualidad del mes de esa fecha según la tarifa del
+ * estado. Retirar a alguien con deuda o saldo a favor sin resolver lo rechaza (el error de la base
+ * explica qué falta).
  */
 export function EstadoSelect({ usuarioId, estado }: { usuarioId: string; estado: EstadoJugador }) {
   const [pending, start] = useTransition()
@@ -57,6 +59,7 @@ export function EstadoSelect({ usuarioId, estado }: { usuarioId: string; estado:
       >
         <option value="activo">Activo</option>
         <option value="lesionado">Lesionado</option>
+        <option value="inactivo">Inactivo</option>
         <option value="retirado">Retirado</option>
       </NativeSelect>
 
@@ -65,9 +68,9 @@ export function EstadoSelect({ usuarioId, estado }: { usuarioId: string; estado:
           <DialogHeader>
             <DialogTitle>Cambiar a {pendiente ? ETIQUETA[pendiente].toLowerCase() : ""}</DialogTitle>
             <DialogDescription>
-              {estado === "activo"
-                ? "La mensualidad del mes de esta fecha se cobra proporcional a los días que alcanzó a estar activo. Si ya estaba pagada, lo que sobre queda como saldo a favor."
-                : "Esta fecha queda en la bitácora. No cambia ningún cobro."}
+              {pendiente === "retirado"
+                ? "La mensualidad del mes se ajusta primero por los días que faltan. Si queda debiendo o con saldo a favor, no se puede retirar hasta cobrarlo, condonarlo o devolverlo."
+                : "La mensualidad del mes de esta fecha se ajusta a la tarifa del estado nuevo, proporcional a los días que falten. Si ya estaba pagada de más, lo que sobre queda como saldo a favor."}
             </DialogDescription>
           </DialogHeader>
           <form

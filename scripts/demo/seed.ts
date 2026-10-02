@@ -72,6 +72,10 @@ export function buildSeed(): Db {
     reglas_conciliacion: [],
     conciliaciones: [],
     egresos: [],
+    tarifas_estado: [
+      { club_id: CLUB_ID, estado: "lesionado", monto_mensual: 40_000, updated_at: "2026-06-15T15:00:00.000Z" },
+      { club_id: CLUB_ID, estado: "inactivo", monto_mensual: 60_000, updated_at: "2026-06-15T15:00:00.000Z" },
+    ],
     bitacora: [],
   }
   const ctx = (fecha: string, actor: string | null, hora = "15:00"): Ctx => ({

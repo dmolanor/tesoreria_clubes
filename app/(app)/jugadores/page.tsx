@@ -21,7 +21,7 @@ interface Fila {
 }
 
 const RANGO_CUENTA = { al_dia: 0, pendiente: 1, mora: 2 } as const
-const RANGO_ESTADO: Record<EstadoMiembro, number> = { activo: 0, lesionado: 1, retirado: 2 }
+const RANGO_ESTADO: Record<EstadoMiembro, number> = { activo: 0, lesionado: 1, inactivo: 2, retirado: 3 }
 
 /** Saldo con signo: positivo = debe, negativo = saldo a favor. De mayor a menor agrupa la mayor deuda arriba. */
 const saldo = (c: Cuenta | undefined) => (c ? c.total_pendiente - c.saldo_a_favor : 0)
@@ -43,7 +43,7 @@ const COLUMNAS: SortColumns<Fila> = {
     kind: "number",
     value: (f) => RANGO_ESTADO[f.u.estado],
     firstDir: "asc",
-    dirText: { asc: "activos, lesionados y retirados", desc: "retirados, lesionados y activos" },
+    dirText: { asc: "activos, lesionados, inactivos y retirados", desc: "retirados, inactivos, lesionados y activos" },
   },
 }
 
@@ -85,7 +85,7 @@ export default async function JugadoresPage(props: PageProps<"/jugadores">) {
         <CardHeader>
           <CardTitle>Jugadores</CardTitle>
           <CardDescription>
-            {categorias.map((c) => `${c}: ${cuenta(c, "activo")} activos, ${cuenta(c, "lesionado")} lesionados`).join(" · ")} ·{" "}
+            {categorias.map((c) => `${c}: ${cuenta(c, "activo")} activos, ${cuenta(c, "lesionado")} lesionados, ${cuenta(c, "inactivo")} inactivos`).join(" · ")} ·{" "}
             {todos.filter((u) => u.estado === "retirado").length} retirados
           </CardDescription>
           <CardAction>

@@ -22,6 +22,8 @@ const TIPO_LABEL: Record<TipoBitacora, string> = {
   egreso_registrado: "Egreso registrado",
   egreso_anulado: "Egreso anulado",
   acuerdo_pago_cambiado: "Acuerdo de pago",
+  tarifa_cambiada: "Tarifa configurada",
+  obligacion_condonada: "Obligación condonada",
 }
 
 /**
