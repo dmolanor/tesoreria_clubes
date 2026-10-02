@@ -88,7 +88,9 @@ export function seedSql(db: Db): string {
       fecha,
       monto: j === fechas.length - 1 ? o.monto - base * (fechas.length - 1) : base,
     }))
-    return { id, obligacion: o, created_at: `2026-09-${20 + i}T15:00:00.000Z`, cuotas }
+    // Evidencia demo: captura (imagen) del mensaje donde el jugador acepta las condiciones.
+    const evidencia_path = `${club.id}/acuerdos/00000000-0000-4000-8000-c0000000000${i + 1}.jpg`
+    return { id, obligacion: o, created_at: `2026-09-${20 + i}T15:00:00.000Z`, cuotas, evidencia_path }
   })
 
   let sql = `-- Generado por scripts/generate-seed-sql.ts — no editar a mano.
@@ -134,8 +136,8 @@ truncate public.bitacora, public.tareas_miembros, public.tareas, public.cuotas_a
   if (acuerdos.length) {
     sql += insert(
       "acuerdos_pago",
-      ["id", "club_id", "miembro_id", "obligacion_id", "notas", "creado_por", "created_at"],
-      acuerdos.map((a) => [a.id, club.id, a.obligacion.usuario_id, a.obligacion.id, "Acuerdo demo", tesoreraId, a.created_at]),
+      ["id", "club_id", "miembro_id", "obligacion_id", "notas", "evidencia_path", "creado_por", "created_at"],
+      acuerdos.map((a) => [a.id, club.id, a.obligacion.usuario_id, a.obligacion.id, "Acuerdo demo", a.evidencia_path, tesoreraId, a.created_at]),
     )
     sql += insert(
       "cuotas_acuerdo",

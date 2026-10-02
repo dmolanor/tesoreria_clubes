@@ -3,6 +3,7 @@ import type { ComprobantePendiente } from "@/lib/db/tesoreria"
 import { formatCOP, formatFecha } from "@/lib/format"
 import { ActionButton } from "@/components/action-button"
 import { Button } from "@/components/ui/button"
+import { CategoriaTag } from "@/components/categoria-tag"
 import { aceptarPropuestaAction } from "@/app/actions/comprobantes"
 
 /** Bandeja: cada fila trae la propuesta del motor y se acepta en 1 clic. */
@@ -28,8 +29,8 @@ export function PendientesList({
         return (
           <li key={c.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-[15px] font-semibold">
-                {c.miembro} · <span className="tabular-nums">{formatCOP(c.monto)}</span>
+              <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
+                {c.miembro} <CategoriaTag categoria={c.categoria} /> · <span className="tabular-nums">{formatCOP(c.monto)}</span>
               </p>
               <p className="text-[13px] text-muted-foreground">
                 Pagó el {formatFecha(c.fecha_pago)} · subido el {formatFecha(c.created_at)}

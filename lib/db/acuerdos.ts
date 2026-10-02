@@ -15,11 +15,13 @@ export interface AcuerdoVista {
   created_at: string
   miembro_id: string
   miembro: string
+  categoria: string | null
   obligacion_id: string
   monto_deuda: number
   pagado_deuda: number
   evento: string
   fecha_limite: string
+  evidencia_path: string
   cuotas: CuotaVista[]
 }
 
@@ -28,7 +30,7 @@ export async function acuerdosDelClub(sb: Supabase, clubId: string): Promise<Acu
   const { data, error } = await sb
     .from("acuerdos_pago")
     .select(
-      "id, estado, notas, created_at, miembro_id, obligacion_id, jugador:miembros!acuerdos_pago_club_id_miembro_id_fkey(nombre), obligaciones!inner(monto, pagado, eventos_cobro!inner(nombre, fecha_limite)), cuotas_acuerdo(numero, fecha, monto)",
+      "id, estado, notas, created_at, miembro_id, obligacion_id, evidencia_path, jugador:miembros!acuerdos_pago_club_id_miembro_id_fkey(nombre, categoria), obligaciones!inner(monto, pagado, eventos_cobro!inner(nombre, fecha_limite)), cuotas_acuerdo(numero, fecha, monto)",
     )
     .eq("club_id", clubId)
     .order("created_at", { ascending: false })
@@ -41,7 +43,7 @@ export async function acuerdosDeMiembro(sb: Supabase, miembroId: string): Promis
   const { data, error } = await sb
     .from("acuerdos_pago")
     .select(
-      "id, estado, notas, created_at, miembro_id, obligacion_id, jugador:miembros!acuerdos_pago_club_id_miembro_id_fkey(nombre), obligaciones!inner(monto, pagado, eventos_cobro!inner(nombre, fecha_limite)), cuotas_acuerdo(numero, fecha, monto)",
+      "id, estado, notas, created_at, miembro_id, obligacion_id, evidencia_path, jugador:miembros!acuerdos_pago_club_id_miembro_id_fkey(nombre, categoria), obligaciones!inner(monto, pagado, eventos_cobro!inner(nombre, fecha_limite)), cuotas_acuerdo(numero, fecha, monto)",
     )
     .eq("miembro_id", miembroId)
     .order("created_at", { ascending: false })
@@ -56,7 +58,8 @@ function mapear(a: {
   created_at: string
   miembro_id: string
   obligacion_id: string
-  jugador: { nombre: string } | null
+  evidencia_path: string
+  jugador: { nombre: string; categoria: string | null } | null
   obligaciones: { monto: number; pagado: number; eventos_cobro: { nombre: string; fecha_limite: string } }
   cuotas_acuerdo: CuotaVista[]
 }): AcuerdoVista {
@@ -67,7 +70,9 @@ function mapear(a: {
     created_at: a.created_at,
     miembro_id: a.miembro_id,
     obligacion_id: a.obligacion_id,
+    evidencia_path: a.evidencia_path,
     miembro: a.jugador?.nombre ?? "?",
+    categoria: a.jugador?.categoria ?? null,
     monto_deuda: Number(a.obligaciones.monto),
     pagado_deuda: Number(a.obligaciones.pagado),
     evento: a.obligaciones.eventos_cobro.nombre,

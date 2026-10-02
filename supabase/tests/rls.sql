@@ -221,8 +221,8 @@ begin
   select o.id into v_obl from public.obligaciones o
   join public.eventos_cobro e on e.id = o.evento_id
   where e.nombre = 'Mensualidad' and o.miembro_id = m_jug2;
-  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, notas)
-  values (club_a, m_jug2, v_obl, 'Paga en dos partes') returning id into v_acuerdo;
+  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, notas, evidencia_path)
+  values (club_a, m_jug2, v_obl, 'Paga en dos partes', format('%s/acuerdos/e1.jpg', club_a)) returning id into v_acuerdo;
   insert into public.cuotas_acuerdo (club_id, acuerdo_id, numero, fecha, monto) values
     (club_a, v_acuerdo, 1, current_date + 7, 50000),
     (club_a, v_acuerdo, 2, current_date + 14, 50000);
@@ -231,13 +231,15 @@ begin
   ok := ok + 2;
   -- el acuerdo y la deuda son del mismo jugador
   begin
-    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug, v_obl);
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, evidencia_path)
+    values (club_a, m_jug, v_obl, format('%s/acuerdos/e2.jpg', club_a));
     raise exception 'NO_FALLO acuerdo con jugador distinto al de la deuda';
   exception when check_violation then ok := ok + 1;
   end;
   -- una sola deuda, un solo acuerdo activo
   begin
-    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl);
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, evidencia_path)
+    values (club_a, m_jug2, v_obl, format('%s/acuerdos/e3.jpg', club_a));
     raise exception 'NO_FALLO segundo acuerdo activo sobre la misma deuda';
   exception when unique_violation then ok := ok + 1;
   end;
@@ -258,8 +260,8 @@ begin
   assert n = 0, 'un jugador no ve acuerdos ajenos';
   -- Sobre su propia deuda, para que la validación de jugador/deuda no se adelante a RLS.
   begin
-    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id)
-    select club_a, m_jug, o.id from public.obligaciones o
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, evidencia_path)
+    select club_a, m_jug, o.id, format('%s/acuerdos/e4.jpg', club_a) from public.obligaciones o
     join public.eventos_cobro e on e.id = o.evento_id
     where e.nombre = 'Mensualidad' and o.miembro_id = m_jug;
     raise exception 'NO_FALLO jugador creó un acuerdo';
@@ -279,7 +281,8 @@ begin
   select count(*) into n from public.acuerdos_pago;
   assert n = 1, 'administración ve los acuerdos del club';
   begin
-    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl);
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, evidencia_path)
+    values (club_a, m_jug2, v_obl, format('%s/acuerdos/e5.jpg', club_a));
     raise exception 'NO_FALLO administración creó un acuerdo';
   exception when insufficient_privilege then ok := ok + 1;
   end;
@@ -290,7 +293,8 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
   update public.acuerdos_pago set estado = 'cancelado' where id = v_acuerdo;
-  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug2, v_obl) returning id into v_acuerdo;
+  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, evidencia_path)
+  values (club_a, m_jug2, v_obl, format('%s/acuerdos/e6.jpg', club_a)) returning id into v_acuerdo;
   select count(*) into n from public.acuerdos_pago where obligacion_id = v_obl and estado = 'activo';
   assert n = 1, 'tras cancelar queda un solo acuerdo activo';
   ok := ok + 2;
@@ -1012,3 +1016,77 @@ begin
   raise exception 'CRUCES_OK % pruebas pasaron', ok;
 end
 $pruebas_cruces$;
+
+
+-- Evidencia de acuerdos de pago (cuarto bloque, mismo patrón).
+do $pruebas_evidencia$
+declare
+  club_a uuid := gen_random_uuid();
+  u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid(); u_jug uuid := gen_random_uuid();
+  m_jug uuid;
+  v_evento uuid; v_obl uuid;
+  n int; ok int := 0;
+begin
+  insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}');
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values
+    (club_a, 'Tes', 'tes@v.test', null, '{tesorero}'), (club_a, 'Adm', 'adm@v.test', null, '{administrativo}'),
+    (club_a, 'Jugador', 'jug@v.test', 'Élite', '{jugador}');
+  insert into auth.users (id, email) values (u_tes, 'tes@v.test'), (u_adm, 'adm@v.test'), (u_jug, 'jug@v.test');
+  select id into m_jug from public.miembros where auth_user_id = u_jug;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_evento := public.crear_evento(club_a, 'Mensualidad', 'mensualidad', 100000, current_date + 10, 'todos');
+  execute 'reset role';
+  select id into v_obl from public.obligaciones where evento_id = v_evento and miembro_id = m_jug;
+
+  -- ---------- tesorería: sin evidencia no hay acuerdo; la ruta debe ser la del club ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id) values (club_a, m_jug, v_obl);
+    raise exception 'NO_FALLO acuerdo sin evidencia';
+  exception when not_null_violation then ok := ok + 1;
+  end;
+  begin
+    insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, evidencia_path)
+    values (club_a, m_jug, v_obl, 'otro-club/acuerdos/x.jpg');
+    raise exception 'NO_FALLO evidencia fuera de la carpeta del club';
+  exception when check_violation then ok := ok + 1;
+  end;
+
+  -- Storage: tesorería sube la evidencia a la carpeta de acuerdos del club.
+  insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/acuerdos/x.jpg', club_a));
+  ok := ok + 1;
+  -- con evidencia en Storage, el acuerdo queda registrado
+  insert into public.acuerdos_pago (club_id, miembro_id, obligacion_id, evidencia_path)
+  values (club_a, m_jug, v_obl, format('%s/acuerdos/x.jpg', club_a));
+  select count(*) into n from public.acuerdos_pago;
+  assert n = 1, 'el acuerdo con evidencia válida queda registrado';
+  ok := ok + 1;
+  execute 'reset role';
+
+  -- ---------- el jugador no sube evidencia ni la lee ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/acuerdos/y.jpg', club_a));
+    raise exception 'NO_FALLO jugador subió evidencia de un acuerdo';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  select count(*) into n from storage.objects where bucket_id = 'comprobantes' and name like format('%s/acuerdos/%%', club_a);
+  assert n = 0, 'el jugador no lee la evidencia del acuerdo';
+  ok := ok + 1;
+  execute 'reset role';
+
+  -- ---------- el admin sí la lee (misma política de club que los soportes de egresos) ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from storage.objects where bucket_id = 'comprobantes' and name like format('%s/acuerdos/%%', club_a);
+  assert n = 1, 'el admin lee la evidencia del acuerdo';
+  ok := ok + 1;
+  execute 'reset role';
+
+  raise exception 'EVIDENCIA_OK % pruebas pasaron', ok;
+end
+$pruebas_evidencia$;

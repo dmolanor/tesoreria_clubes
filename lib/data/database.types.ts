@@ -21,6 +21,7 @@ export type Database = {
           creado_por: string | null
           created_at: string
           estado: Database["public"]["Enums"]["estado_acuerdo"]
+          evidencia_path: string
           id: string
           miembro_id: string
           notas: string | null
@@ -32,6 +33,7 @@ export type Database = {
           creado_por?: string | null
           created_at?: string
           estado?: Database["public"]["Enums"]["estado_acuerdo"]
+          evidencia_path: string
           id?: string
           miembro_id: string
           notas?: string | null
@@ -43,6 +45,7 @@ export type Database = {
           creado_por?: string | null
           created_at?: string
           estado?: Database["public"]["Enums"]["estado_acuerdo"]
+          evidencia_path?: string
           id?: string
           miembro_id?: string
           notas?: string | null

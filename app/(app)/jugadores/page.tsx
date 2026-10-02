@@ -6,6 +6,7 @@ import { formatCOP } from "@/lib/format"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { StatusDot } from "@/components/status-dot"
+import { CategoriaTag } from "@/components/categoria-tag"
 import { EstadoSelect } from "@/components/admin/estado-select"
 import { ImportarJugadores } from "@/components/admin/importar-jugadores"
 import { ActivityPanel } from "@/components/activity-panel"
@@ -129,7 +130,9 @@ export default async function JugadoresPage(props: PageProps<"/jugadores">) {
                       {u.auth_user_id ? "" : " · aún no ha entrado"}
                     </span>
                   </TableCell>
-                  <TableCell>{u.categoria ?? "—"}</TableCell>
+                  <TableCell>
+                    <CategoriaTag categoria={u.categoria} />
+                  </TableCell>
                   <TableCell>
                     <StatusDot estado={c?.estado ?? "al_dia"} label />
                   </TableCell>

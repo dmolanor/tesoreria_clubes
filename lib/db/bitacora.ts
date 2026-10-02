@@ -1,5 +1,6 @@
 import "server-only"
 import type { Supabase } from "@/lib/supabase/server"
+import { diaSiguiente } from "@/lib/bitacora"
 import type { TipoBitacora } from "./types"
 
 export interface BitacoraItem {
@@ -15,7 +16,7 @@ export const PAGINA = 25
 export async function paginaBitacora(
   sb: Supabase,
   clubId: string,
-  f: { cursor?: string | null; tipos?: TipoBitacora[]; actorId?: string | null; desde?: string | null },
+  f: { cursor?: string | null; tipos?: TipoBitacora[]; actorId?: string | null; desde?: string | null; hasta?: string | null },
 ): Promise<{ items: BitacoraItem[]; nextCursor: string | null }> {
   let q = sb
     .from("bitacora")
@@ -27,6 +28,8 @@ export async function paginaBitacora(
   if (f.tipos?.length) q = q.in("tipo", f.tipos)
   if (f.actorId) q = q.eq("actor_id", f.actorId)
   if (f.desde) q = q.gte("created_at", f.desde)
+  // "Hasta" es inclusivo: cubre todo ese día, no solo su medianoche.
+  if (f.hasta) q = q.lt("created_at", diaSiguiente(f.hasta))
   if (f.cursor) {
     const [ts, id] = f.cursor.split("|")
     q = q.or(`created_at.lt."${ts}",and(created_at.eq."${ts}",id.lt.${id})`)

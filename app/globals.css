@@ -27,6 +27,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-raza: var(--raza);
+  --color-raza-light: var(--raza-light);
   --color-warn: var(--warn);
   --color-faint: var(--faint);
   --color-paper: var(--paper);
@@ -49,6 +50,7 @@
   --muted-ink: #737373;
   --faint: #a3a3a3;
   --raza: #0e6b5c;
+  --raza-light: #abcbc6; /* --raza con un tinte claro: "en acuerdo" en la barra de progreso, nunca ámbar */
   --warn: #b45309;
 
   --background: var(--paper);
