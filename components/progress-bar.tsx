@@ -1,4 +1,8 @@
-/** "38/47 · 81% · 5 en acuerdo" con barra de tres tramos: pagado, en acuerdo, pendiente. */
+/**
+ * "38/47 · 81% · 5 en acuerdo" con barra de tres tramos: pagado, en acuerdo, pendiente.
+ * El tramo "en acuerdo" usa `--raza-light` (el acento con un tinte claro), no ámbar: el ámbar
+ * de DESIGN.md queda reservado para "vencido o mora" en toda la app.
+ */
 export function ProgressBar({
   value,
   committed = 0,
@@ -19,7 +23,7 @@ export function ProgressBar({
       <div className="flex items-baseline justify-between text-[13px] font-medium">
         <span>
           {value}/{total} {unidad}
-          {committed > 0 ? <span className="text-warn"> · {committed} en acuerdo</span> : null}
+          {committed > 0 ? <span className="text-muted-foreground"> · {committed} en acuerdo</span> : null}
         </span>
         <span className="text-muted-foreground">{pct}%</span>
       </div>
@@ -32,7 +36,7 @@ export function ProgressBar({
         aria-label={`${value} de ${total} ${unidad}, ${committed} en acuerdo de pago`}
       >
         <div className="h-full bg-raza transition-[width] duration-200" style={{ width: `${pct}%` }} />
-        <div className="h-full bg-warn transition-[width] duration-200" style={{ width: `${pctComm}%` }} />
+        <div className="h-full bg-raza-light transition-[width] duration-200" style={{ width: `${pctComm}%` }} />
       </div>
     </div>
   )

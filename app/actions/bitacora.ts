@@ -12,6 +12,7 @@ export async function cargarBitacora(input: {
   tipos?: TipoBitacora[]
   actor_id?: string | null
   desde?: string | null
+  hasta?: string | null
 }): Promise<{ items: BitacoraItem[]; nextCursor: string | null }> {
   const s = await requireRole("tesorero", "administrativo")
   return paginaBitacora(s.supabase, s.club_id, {
@@ -19,6 +20,7 @@ export async function cargarBitacora(input: {
     tipos: input.tipos?.filter((t) => TIPOS_BITACORA.includes(t)),
     actorId: input.actor_id,
     desde: input.desde,
+    hasta: input.hasta,
   })
 }
 

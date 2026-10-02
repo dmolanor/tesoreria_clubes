@@ -6,6 +6,7 @@ import { TIPO_COBRO_LABEL, type EventoCobro } from "@/lib/db/types"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { ProgressBar } from "@/components/progress-bar"
+import { CategoriaTag } from "@/components/categoria-tag"
 import { NuevoEvento } from "@/components/admin/nuevo-evento"
 import { ActivityPanel } from "@/components/activity-panel"
 import { SortableHead } from "@/components/sortable-head"
@@ -77,10 +78,13 @@ export default async function EventosPage(props: PageProps<"/eventos">) {
                 return (
                   <TableRow key={e.id} className={e.estado === "cancelado" ? "text-muted-foreground" : undefined}>
                     <TableCell>
-                      <Link href={`/eventos/${e.id}`} className="font-medium hover:underline">
-                        {e.nombre}
-                      </Link>
-                      <span className="ml-2 text-[13px] text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Link href={`/eventos/${e.id}`} className="font-medium hover:underline">
+                          {e.nombre}
+                        </Link>
+                        <CategoriaTag categoria={e.categoria} />
+                      </div>
+                      <span className="text-[13px] text-muted-foreground">
                         {TIPO_COBRO_LABEL[e.tipo]}
                         {e.estado === "cancelado" ? " · cancelado" : ""}
                       </span>

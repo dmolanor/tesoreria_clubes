@@ -2,7 +2,8 @@ import Link from "next/link"
 import { Send } from "lucide-react"
 import { pageSession } from "@/lib/auth/page"
 import { categoriasDelClub, eventosDelClub, miembrosSinCuenta, opcionesJugadores, progresoEventos } from "@/lib/db/admin"
-import { diasEntre, formatCOP, formatFecha, hoyISO, relativoVencimiento } from "@/lib/format"
+import { kpisClub } from "@/lib/db/kpis"
+import { diasEntre, formatCOP, formatFecha, formatMes, hoyISO, relativoVencimiento } from "@/lib/format"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ProgressBar } from "@/components/progress-bar"
 import { NuevoEvento } from "@/components/admin/nuevo-evento"
@@ -19,12 +20,14 @@ export default async function AdminHome() {
   const s = await pageSession("administrativo")
   const sb = s.supabase
   const hoy = hoyISO()
-  const [eventos, progreso, jugadores, categorias, sinCuenta, { data: cambios }] = await Promise.all([
+  const mesActual = `${hoy.slice(0, 7)}-01`
+  const [eventos, progreso, jugadores, categorias, sinCuenta, kpis, { data: cambios }] = await Promise.all([
     eventosDelClub(sb, s.club_id),
     progresoEventos(sb, s.club_id),
     opcionesJugadores(sb, s.club_id),
     categoriasDelClub(sb, s.club_id),
     miembrosSinCuenta(sb, s.club_id),
+    kpisClub(sb, s.club_id, mesActual),
     sb
       .from("bitacora")
       .select("id, objetivo_id, descripcion, created_at")
@@ -42,6 +45,38 @@ export default async function AdminHome() {
 
   return (
     <div className="space-y-6">
+      {/* KPIs de solo lectura (compartidos con el inicio del tesorero — ver lib/db/kpis.ts). Sin
+          comprobantes pendientes: el admin no los gestiona. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Card>
+          <CardContent>
+            <p className="text-[13px] font-medium text-muted-foreground">Recaudo de {formatMes(mesActual).toLowerCase()}</p>
+            <p className="mt-1 text-[20px] leading-tight font-bold tabular-nums">{formatCOP(kpis.recaudo.recaudado)}</p>
+            <p className="mt-0.5 text-[13px] text-muted-foreground tabular-nums">
+              de {formatCOP(kpis.recaudo.totalEsperado)} · {kpis.recaudo.pct}%
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <p className="text-[13px] font-medium text-muted-foreground">Jugadores en mora</p>
+            <p className="mt-1 text-[20px] leading-tight font-bold tabular-nums">{kpis.jugadoresEnMora}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <p className="text-[13px] font-medium text-muted-foreground">Monto en mora</p>
+            <p className="mt-1 text-[20px] leading-tight font-bold tabular-nums text-warn">{formatCOP(kpis.montoEnMora)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <p className="text-[13px] font-medium text-muted-foreground">Saldo a favor del club</p>
+            <p className="mt-1 text-[20px] leading-tight font-bold tabular-nums">{formatCOP(kpis.saldoAFavorClub)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <NuevoEvento jugadores={jugadores} categorias={categorias} />
         <AgregarJugador categorias={categorias} />

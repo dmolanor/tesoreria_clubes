@@ -59,6 +59,7 @@ export interface ComprobantePendiente {
   id: string
   miembro_id: string
   miembro: string
+  categoria: string | null
   /** false si el comprobante no está ligado a un miembro visible (p. ej. un canal futuro sin identificar). */
   miembro_identificado: boolean
   monto: number
@@ -78,7 +79,7 @@ export interface ComprobantePendiente {
 export async function bandeja(sb: Supabase, clubId: string, filtro?: { id?: string }): Promise<ComprobantePendiente[]> {
   let q = sb
     .from("comprobantes")
-    .select("id, miembro_id, monto, fecha_pago, created_at, archivo_path, canal, extraccion, miembros!comprobantes_club_id_miembro_id_fkey(nombre)")
+    .select("id, miembro_id, monto, fecha_pago, created_at, archivo_path, canal, extraccion, miembros!comprobantes_club_id_miembro_id_fkey(nombre, categoria)")
     .eq("club_id", clubId)
     .eq("estado", "pendiente")
     .order("created_at")
@@ -98,6 +99,7 @@ export async function bandeja(sb: Supabase, clubId: string, filtro?: { id?: stri
         id: c.id,
         miembro_id: c.miembro_id,
         miembro: c.miembros?.nombre ?? "?",
+        categoria: c.miembros?.categoria ?? null,
         miembro_identificado: !!c.miembro_id && !!c.miembros,
         monto: Number(c.monto),
         fecha_pago: c.fecha_pago,

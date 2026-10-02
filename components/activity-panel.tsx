@@ -37,6 +37,7 @@ export function ActivityPanel({ tipos, titulo = "Actividad reciente" }: { tipos?
   const [tipo, setTipo] = useState<TipoBitacora | "">("")
   const [actor, setActor] = useState("")
   const [desde, setDesde] = useState("")
+  const [hasta, setHasta] = useState("")
   const [actores, setActores] = useState<Array<{ id: string; nombre: string }>>([])
   const [pending, start] = useTransition()
 
@@ -48,11 +49,12 @@ export function ActivityPanel({ tipos, titulo = "Actividad reciente" }: { tipos?
           tipos: tipo ? [tipo] : (tiposKey.split(",") as TipoBitacora[]),
           actor_id: actor || null,
           desde: desde || null,
+          hasta: hasta || null,
         })
         setItems((prev) => (reset ? r.items : [...prev, ...r.items]))
         setCursor(r.nextCursor)
       }),
-    [tipo, actor, desde, tiposKey],
+    [tipo, actor, desde, hasta, tiposKey],
   )
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function ActivityPanel({ tipos, titulo = "Actividad reciente" }: { tipos?
       </button>
       {open ? (
         <div className="border-t border-border px-4 pb-4">
-          <div className="grid gap-2 py-3 sm:grid-cols-3">
+          <div className="grid gap-2 py-3 sm:grid-cols-4">
             <NativeSelect aria-label="Tipo" value={tipo} onChange={(e) => setTipo(e.target.value as TipoBitacora | "")}>
               <option value="">Todos los tipos</option>
               {disponibles.map((t) => (
@@ -92,7 +94,8 @@ export function ActivityPanel({ tipos, titulo = "Actividad reciente" }: { tipos?
                 </option>
               ))}
             </NativeSelect>
-            <Input aria-label="Desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+            <Input aria-label="Desde" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
+            <Input aria-label="Hasta" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
           </div>
           {items.length === 0 && !pending ? <p className="text-muted-foreground">Sin actividad con estos filtros.</p> : null}
           <ul className="divide-y divide-border">
