@@ -467,6 +467,7 @@ declare
   u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid(); u_jug uuid := gen_random_uuid(); u_tesb uuid := gen_random_uuid();
   m_jug uuid;
   v_egreso uuid; v_egreso_b uuid;
+  v_evento uuid; v_evento_b uuid;
   v_mes date := date_trunc('month', current_date)::date;
   n int; v numeric; ok int := 0;
 begin
@@ -479,13 +480,18 @@ begin
   -- Un ingreso aceptado del mes (como postgres) para probar el cuadre.
   insert into public.comprobantes (club_id, miembro_id, monto, fecha_pago, estado, revisado_en)
   values (club_a, m_jug, 500000, v_mes, 'aceptado', now());
+  -- Un evento por club, para probar que un egreso no sustenta el cobro de otro club.
+  insert into public.eventos_cobro (club_id, nombre, tipo, monto, fecha_limite, alcance) values
+    (club_a, 'Torneo Regional', 'torneo', 100000, v_mes + 10, 'individual') returning id into v_evento;
+  insert into public.eventos_cobro (club_id, nombre, tipo, monto, fecha_limite, alcance) values
+    (club_b, 'Evento B', 'otro', 1000, v_mes + 10, 'individual') returning id into v_evento_b;
 
   -- ---------- tesorera A: registra y anula ----------
   perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
   insert into public.egresos (club_id, fecha, monto, concepto, categoria) values
-    (club_a, v_mes, 300000, 'Arriendo de cancha', 'arriendo_cancha') returning id into v_egreso;
-  insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_a, v_mes, 50000, 'Duplicado', 'otro');
+    (club_a, v_mes, 300000, 'Arriendo de cancha', 'canchas') returning id into v_egreso;
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria, categoria_otro) values (club_a, v_mes, 50000, 'Duplicado', 'otros', 'Varios');
   select count(*) into n from public.egresos e where e.creado_por = (select id from public.miembros where auth_user_id = u_tes);
   assert n = 2, 'creado_por = la tesorera (lo fija el trigger)';
   select count(*) into n from public.bitacora where tipo = 'egreso_registrado' and club_id = club_a and descripcion like '%$300.000%';
@@ -513,13 +519,13 @@ begin
   end;
   -- no a nombre de otro club
   begin
-    insert into public.egresos (club_id, fecha, monto, concepto) values (club_b, v_mes, 1000, 'x');
+    insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_b, v_mes, 1000, 'x', 'canchas');
     raise exception 'NO_FALLO egreso en otro club';
   exception when insufficient_privilege then ok := ok + 1;
   end;
   -- ni con fecha futura
   begin
-    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, current_date + 40, 1000, 'x');
+    insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_a, current_date + 40, 1000, 'x', 'canchas');
     raise exception 'NO_FALLO egreso futuro';
   exception when check_violation then ok := ok + 1;
   end;
@@ -535,28 +541,36 @@ begin
   ok := ok + 2;
   execute 'reset role';
 
-  -- ---------- admin A: lee, no registra ni anula ----------
+  -- ---------- admin A: también registra y anula egresos ----------
   perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
   select count(*) into n from public.egresos;
   assert n = 2, format('admin lee los egresos del club, vio %s', n);
-  select count(*) into n from storage.objects where bucket_id = 'comprobantes' and name like format('%s/egresos/%%', club_a);
-  assert n = 1, 'admin ve el soporte';
-  ok := ok + 2;
-  begin
-    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, v_mes, 1000, 'x');
-    raise exception 'NO_FALLO admin registró un egreso';
-  exception when insufficient_privilege then ok := ok + 1;
-  end;
-  update public.egresos set anulado_en = now() where id = v_egreso;
-  get diagnostics n = row_count;
-  assert n = 0, 'NO_FALLO admin anuló un egreso';
   ok := ok + 1;
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria, evento_id) values
+    (club_a, v_mes, 90000, 'Observadores del torneo', 'torneos', v_evento) returning id into v_egreso;
+  select count(*) into n from public.egresos e
+  where e.id = v_egreso and e.evento_id = v_evento and e.creado_por = (select id from public.miembros where auth_user_id = u_adm);
+  assert n = 1, 'el admin registra un egreso que sustenta un evento, creado_por = el admin';
+  ok := ok + 2;
+  update public.egresos set anulado_en = now() where id = v_egreso;
+  select count(*) into n from public.egresos where id = v_egreso and anulado_en is not null;
+  assert n = 1, 'el admin anula su propio egreso';
+  ok := ok + 1;
+  -- 'otros' sin texto se rechaza
   begin
-    insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/g.pdf', club_a));
-    raise exception 'NO_FALLO admin subió un soporte';
-  exception when insufficient_privilege then ok := ok + 1;
+    insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_a, v_mes, 1000, 'x', 'otros');
+    raise exception 'NO_FALLO otros sin categoria_otro';
+  exception when check_violation then ok := ok + 1;
   end;
+  -- un evento de otro club no sustenta un egreso de este
+  begin
+    insert into public.egresos (club_id, fecha, monto, concepto, categoria, evento_id) values (club_a, v_mes, 1000, 'x', 'canchas', v_evento_b);
+    raise exception 'NO_FALLO evento de otro club';
+  exception when foreign_key_violation then ok := ok + 1;
+  end;
+  insert into storage.objects (bucket_id, name) values ('comprobantes', format('%s/egresos/g.pdf', club_a));
+  ok := ok + 1; -- el admin también sube soportes
   execute 'reset role';
 
   -- ---------- jugador A: no ve ni registra ----------
@@ -568,7 +582,7 @@ begin
   assert n = 0, 'el jugador no ve los soportes';
   ok := ok + 2;
   begin
-    insert into public.egresos (club_id, fecha, monto, concepto) values (club_a, v_mes, 1000, 'x');
+    insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_a, v_mes, 1000, 'x', 'canchas');
     raise exception 'NO_FALLO jugador registró un egreso';
   exception when insufficient_privilege then ok := ok + 1;
   end;
@@ -582,7 +596,7 @@ begin
   -- ---------- club B: aislamiento ----------
   perform set_config('request.jwt.claims', json_build_object('sub', u_tesb, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
-  insert into public.egresos (club_id, fecha, monto, concepto) values (club_b, v_mes, 70000, 'Discos') returning id into v_egreso_b;
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_b, v_mes, 70000, 'Discos', 'uniformes') returning id into v_egreso_b;
   select count(*) into n from public.egresos;
   assert n = 1, format('B solo ve su egreso, vio %s', n);
   update public.egresos set anulado_en = now() where id = v_egreso;
@@ -599,3 +613,101 @@ begin
   raise exception 'EGRESOS_OK % pruebas pasaron', ok;
 end
 $pruebas_egresos$;
+
+-- Cruces de cuentas (cuarto bloque, mismo patrón): un jugador que trabaja para el club.
+do $pruebas_cruces$
+declare
+  club_a uuid := gen_random_uuid();
+  u_tes uuid := gen_random_uuid(); u_adm uuid := gen_random_uuid(); u_jug uuid := gen_random_uuid();
+  m_jug uuid;
+  v_evento uuid; v_obl uuid; v_comp uuid; v_egreso uuid;
+  v_canal public.canal_comprobante;
+  v_hoy date; v_mes date;
+  n int; v numeric; v_pagado numeric; ok int := 0;
+begin
+  insert into public.clubes (id, nombre, categorias) values (club_a, 'Club A', '{Élite}');
+  insert into public.miembros (club_id, nombre, correo, categoria, roles) values
+    (club_a, 'Tes', 'tes@cr.test', null, '{tesorero}'),
+    (club_a, 'Adm', 'adm@cr.test', null, '{administrativo}'),
+    (club_a, 'Jugador', 'jug@cr.test', 'Élite', '{jugador}');
+  insert into auth.users (id, email) values (u_tes, 'tes@cr.test'), (u_adm, 'adm@cr.test'), (u_jug, 'jug@cr.test');
+  select id into m_jug from public.miembros where auth_user_id = u_jug;
+  -- "Hoy" según la zona horaria del club (no `current_date`, que puede ir un día adelante de
+  -- `private.hoy` en la ventana UTC 00:00–05:00 — mismo cuidado que el bloque de prorrateo).
+  v_hoy := private.hoy(club_a);
+  v_mes := date_trunc('month', v_hoy)::date;
+
+  -- Mensualidad pendiente del jugador: el cruce la cubre con la propuesta del motor (nunca FIFO a mano).
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_evento := public.crear_evento(club_a, 'Mensualidad', 'mensualidad', 60000, v_hoy + 10, 'todos');
+  execute 'reset role';
+  select o.id into v_obl from public.obligaciones o where o.evento_id = v_evento and o.miembro_id = m_jug;
+
+  -- ---------- solo tesorería registra cruces ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_adm, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.registrar_cruce(m_jug, 60000, v_hoy, 'Entrenamiento',
+      jsonb_build_array(jsonb_build_object('obligacion_id', v_obl, 'monto', 60000)));
+    raise exception 'NO_FALLO administración registró un cruce';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', u_jug, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.registrar_cruce(m_jug, 60000, v_hoy, 'Entrenamiento',
+      jsonb_build_array(jsonb_build_object('obligacion_id', v_obl, 'monto', 60000)));
+    raise exception 'NO_FALLO el jugador registró su propio cruce';
+  exception when insufficient_privilege then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- tesorera: registra el cruce ----------
+  perform set_config('request.jwt.claims', json_build_object('sub', u_tes, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  v_comp := public.registrar_cruce(m_jug, 60000, v_hoy, 'Entrenamiento septiembre',
+    jsonb_build_array(jsonb_build_object('obligacion_id', v_obl, 'monto', 60000)));
+  ok := ok + 1;
+  -- el comprobante queda aceptado, con canal 'compensacion', y la obligación pagada
+  select canal into v_canal from public.comprobantes where id = v_comp and estado = 'aceptado';
+  assert v_canal = 'compensacion', 'el comprobante del cruce queda aceptado con canal compensacion';
+  select pagado, monto into v_pagado, v from public.obligaciones where id = v_obl;
+  assert v_pagado = 60000 and v_pagado = v, format('la obligación queda pagada: pagado=%s monto=%s', v_pagado, v);
+  ok := ok + 2;
+  -- bitácora: una sola entrada específica, sin duplicar la genérica de comprobante/egreso
+  select count(*) into n from public.bitacora
+  where tipo = 'cruce_registrado' and club_id = club_a and descripcion like '%Jugador%' and descripcion like '%$60.000%';
+  assert n = 1, 'bitácora registra el cruce con el jugador y el monto';
+  select count(*) into n from public.bitacora
+  where club_id = club_a and tipo in ('comprobante_subido', 'comprobante_aceptado', 'egreso_registrado');
+  assert n = 0, 'el cruce no deja bitácora genérica duplicada';
+  ok := ok + 2;
+
+  -- ---------- un egreso de cruce no se anula suelto ----------
+  select id into v_egreso from public.egresos where comprobante_id = v_comp;
+  begin
+    update public.egresos set anulado_en = now() where id = v_egreso;
+    raise exception 'NO_FALLO anuló un egreso de cruce suelto';
+  exception when check_violation then ok := ok + 1;
+  end;
+  execute 'reset role';
+
+  -- ---------- el cruce no cambia la diferencia de una conciliación ----------
+  -- Ingreso y egreso reales del mes, para que el cuadre tenga algo que cuadrar además del cruce.
+  insert into public.comprobantes (club_id, miembro_id, monto, fecha_pago, estado, revisado_en)
+  values (club_a, m_jug, 40000, v_mes, 'aceptado', now());
+  insert into public.egresos (club_id, fecha, monto, concepto, categoria) values (club_a, v_mes, 20000, 'Discos de juego', 'uniformes');
+  perform public.guardar_conciliacion(club_a, v_mes, 1000000, 1020000);
+  select total_aceptado into v from public.conciliaciones where club_id = club_a;
+  assert v = 40000, format('total_aceptado excluye la compensación del cruce (40.000), dice %s', v);
+  select total_egresos into v from public.conciliaciones where club_id = club_a;
+  assert v = 20000, format('total_egresos excluye el egreso del cruce (20.000), dice %s', v);
+  select diferencia into v from public.conciliaciones where club_id = club_a;
+  assert v = 0, format('el cruce se anula a sí mismo frente al banco: esperado 20.000 = banco 20.000, dice %s de diferencia', v);
+  ok := ok + 3;
+
+  raise exception 'CRUCES_OK % pruebas pasaron', ok;
+end
+$pruebas_cruces$;

@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StatusDot } from "@/components/status-dot"
 import { EstadoSelect } from "@/components/admin/estado-select"
 import { RolesEditor } from "@/components/admin/roles-editor"
+import { RegistrarCruce } from "@/components/tesorero/registrar-cruce"
 import { cn } from "@/lib/utils"
 
 export default async function JugadorDetalle(props: PageProps<"/jugadores/[id]">) {
@@ -24,6 +25,7 @@ export default async function JugadorDetalle(props: PageProps<"/jugadores/[id]">
   ])
   const urls = await urlsFirmadas(sb, comprobantes.map((c) => c.archivo_path))
   const esAdmin = s.roles.includes("administrativo")
+  const esTesorero = s.roles.includes("tesorero")
   const pagadas = obligaciones.filter((x) => x.saldo === 0).length
 
   return (
@@ -46,6 +48,7 @@ export default async function JugadorDetalle(props: PageProps<"/jugadores/[id]">
             {cuenta.total_vencido ? <span className="font-medium text-warn">{formatCOP(cuenta.total_vencido)} vencido</span> : null}
             {cuenta.saldo_a_favor ? <span>{formatCOP(cuenta.saldo_a_favor)} a favor</span> : null}
           </div>
+          {esTesorero ? <RegistrarCruce miembroId={u.id} nombre={u.nombre} /> : null}
           {esAdmin ? (
             <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-[auto_1fr]">
               <div className="space-y-1.5">
@@ -110,7 +113,9 @@ export default async function JugadorDetalle(props: PageProps<"/jugadores/[id]">
                     <span className="font-semibold tabular-nums">{formatCOP(c.monto)}</span>
                     <span className="text-[13px] text-muted-foreground">
                       {formatFecha(c.fecha_pago)} ·{" "}
-                      <span className={cn(c.estado === "rechazado" && "text-warn", c.estado === "aceptado" && "text-raza")}>{c.estado}</span>
+                      <span className={cn(c.estado === "rechazado" && "text-warn", c.estado === "aceptado" && "text-raza")}>
+                        {c.esCruce ? "Cruce" : c.estado}
+                      </span>
                       {href ? (
                         <>
                           {" · "}

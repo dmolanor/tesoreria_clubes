@@ -35,6 +35,7 @@ export const TIPOS_BITACORA: readonly TipoBitacora[] = [
   "egreso_registrado",
   "egreso_anulado",
   "acuerdo_pago_cambiado",
+  "cruce_registrado",
 ]
 
 export const TIPO_COBRO_LABEL: Record<TipoCobro, string> = {
@@ -46,9 +47,12 @@ export const TIPO_COBRO_LABEL: Record<TipoCobro, string> = {
 }
 
 export const CATEGORIA_EGRESO_LABEL: Record<CategoriaEgreso, string> = {
-  arriendo_cancha: "Arriendo de cancha",
-  arbitros: "Árbitros",
-  equipamiento: "Equipamiento",
-  federacion: "Federación o liga",
-  otro: "Otro",
+  canchas: "Canchas",
+  nomina: "Nómina",
+  uniformes: "Uniformes",
+  torneos: "Torneos",
+  administrativos: "Gastos administrativos",
+  polizas: "Pólizas",
+  liga_federacion: "Liga/Federación",
+  otros: "Otros",
 }

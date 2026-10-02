@@ -81,6 +81,8 @@ export interface ComprobanteDetalle {
   revisado_en: string | null
   desglose: LineaAplicada[]
   saldo_a_favor: number
+  /** Cruce de cuentas (comprobante de compensación, sin plata real) en vez de un pago. */
+  esCruce: boolean
 }
 
 const ORIGEN: Record<string, string> = { manual: "Ajuste manual", saldo_a_favor: "Saldo a favor", propuesta: "Regla" }
@@ -90,7 +92,7 @@ export async function comprobantesDe(sb: Supabase, filtro: { miembroId?: string;
   let q = sb
     .from("comprobantes")
     .select(
-      "id, monto, fecha_pago, created_at, estado, motivo_rechazo, archivo_path, revisado_por, revisado_en, aplicaciones(monto, origen, anulada_en, reglas_conciliacion(nombre), obligaciones(eventos_cobro(nombre)))",
+      "id, monto, fecha_pago, created_at, estado, motivo_rechazo, archivo_path, revisado_por, revisado_en, canal, aplicaciones(monto, origen, anulada_en, reglas_conciliacion(nombre), obligaciones(eventos_cobro(nombre)))",
     )
     .order("created_at", { ascending: false })
   if (filtro.miembroId) q = q.eq("miembro_id", filtro.miembroId)
@@ -116,6 +118,7 @@ export async function comprobantesDe(sb: Supabase, filtro: { miembroId?: string;
         regla: a.reglas_conciliacion?.nombre ?? ORIGEN[a.origen],
       })),
       saldo_a_favor: c.estado === "aceptado" ? Number(c.monto) - aplicado : 0,
+      esCruce: c.canal === "compensacion",
     }
   })
 }

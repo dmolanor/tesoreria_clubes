@@ -442,10 +442,13 @@ export type Database = {
         Row: {
           anulado_en: string | null
           categoria: Database["public"]["Enums"]["categoria_egreso"]
+          categoria_otro: string | null
           club_id: string
+          comprobante_id: string | null
           concepto: string
           creado_por: string | null
           created_at: string
+          evento_id: string | null
           fecha: string
           id: string
           monto: number
@@ -454,10 +457,13 @@ export type Database = {
         Insert: {
           anulado_en?: string | null
           categoria?: Database["public"]["Enums"]["categoria_egreso"]
+          categoria_otro?: string | null
           club_id: string
+          comprobante_id?: string | null
           concepto: string
           creado_por?: string | null
           created_at?: string
+          evento_id?: string | null
           fecha: string
           id?: string
           monto: number
@@ -466,16 +472,26 @@ export type Database = {
         Update: {
           anulado_en?: string | null
           categoria?: Database["public"]["Enums"]["categoria_egreso"]
+          categoria_otro?: string | null
           club_id?: string
+          comprobante_id?: string | null
           concepto?: string
           creado_por?: string | null
           created_at?: string
+          evento_id?: string | null
           fecha?: string
           id?: string
           monto?: number
           soporte_path?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "egresos_club_id_comprobante_id_fkey"
+            columns: ["club_id", "comprobante_id"]
+            isOneToOne: false
+            referencedRelation: "comprobantes"
+            referencedColumns: ["club_id", "id"]
+          },
           {
             foreignKeyName: "egresos_club_id_creado_por_fkey"
             columns: ["club_id", "creado_por"]
@@ -489,6 +505,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "miembros"
             referencedColumns: ["club_id", "id"]
+          },
+          {
+            foreignKeyName: "egresos_club_id_evento_id_fkey"
+            columns: ["club_id", "evento_id"]
+            isOneToOne: false
+            referencedRelation: "eventos_cobro"
+            referencedColumns: ["club_id", "id"]
+          },
+          {
+            foreignKeyName: "egresos_club_id_evento_id_fkey"
+            columns: ["club_id", "evento_id"]
+            isOneToOne: false
+            referencedRelation: "progreso_eventos"
+            referencedColumns: ["club_id", "evento_id"]
           },
           {
             foreignKeyName: "egresos_club_id_fkey"
@@ -887,6 +917,16 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      registrar_cruce: {
+        Args: {
+          p_concepto: string
+          p_fecha: string
+          p_lineas: Json
+          p_miembro_id: string
+          p_monto: number
+        }
+        Returns: string
+      }
       reordenar_reglas: {
         Args: { p_club_id: string; p_ids: string[] }
         Returns: undefined
@@ -894,13 +934,16 @@ export type Database = {
     }
     Enums: {
       alcance_cobro: "todos" | "grupo" | "individual"
-      canal_comprobante: "manual" | "whatsapp" | "wompi"
+      canal_comprobante: "manual" | "whatsapp" | "wompi" | "compensacion"
       categoria_egreso:
-        | "arriendo_cancha"
-        | "arbitros"
-        | "equipamiento"
-        | "federacion"
-        | "otro"
+        | "canchas"
+        | "nomina"
+        | "uniformes"
+        | "torneos"
+        | "administrativos"
+        | "polizas"
+        | "liga_federacion"
+        | "otros"
       estado_acuerdo: "activo" | "cancelado"
       estado_comprobante: "pendiente" | "aceptado" | "rechazado"
       estado_evento: "activo" | "cancelado"
@@ -928,6 +971,7 @@ export type Database = {
         | "acuerdo_pago_cambiado"
         | "egreso_registrado"
         | "egreso_anulado"
+        | "cruce_registrado"
       tipo_cobro: "mensualidad" | "afiliacion" | "torneo" | "uniforme" | "otro"
       tipo_recordatorio: "mensual" | "previo_vencimiento" | "acuerdo_pago"
       tipo_regla: "monto_exacto" | "evento_especifico" | "mas_antiguo_primero"
@@ -1059,13 +1103,16 @@ export const Constants = {
   public: {
     Enums: {
       alcance_cobro: ["todos", "grupo", "individual"],
-      canal_comprobante: ["manual", "whatsapp", "wompi"],
+      canal_comprobante: ["manual", "whatsapp", "wompi", "compensacion"],
       categoria_egreso: [
-        "arriendo_cancha",
-        "arbitros",
-        "equipamiento",
-        "federacion",
-        "otro",
+        "canchas",
+        "nomina",
+        "uniformes",
+        "torneos",
+        "administrativos",
+        "polizas",
+        "liga_federacion",
+        "otros",
       ],
       estado_acuerdo: ["activo", "cancelado"],
       estado_comprobante: ["pendiente", "aceptado", "rechazado"],
@@ -1095,6 +1142,7 @@ export const Constants = {
         "acuerdo_pago_cambiado",
         "egreso_registrado",
         "egreso_anulado",
+        "cruce_registrado",
       ],
       tipo_cobro: ["mensualidad", "afiliacion", "torneo", "uniforme", "otro"],
       tipo_recordatorio: ["mensual", "previo_vencimiento", "acuerdo_pago"],

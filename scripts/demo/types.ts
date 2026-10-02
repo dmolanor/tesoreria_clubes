@@ -67,7 +67,7 @@ export interface Comprobante {
   usuario_id: Uuid
   archivo_url: string | null
   monto_total: number
-  canal: "manual" | "wompi" | "whatsapp"
+  canal: "manual" | "wompi" | "whatsapp" | "compensacion"
   fecha_carga: IsoDateTime
   estado: EstadoComprobante
   motivo_rechazo: string | null
@@ -123,7 +123,15 @@ export interface Conciliacion {
   created_at: IsoDateTime
 }
 
-export type CategoriaEgreso = "arriendo_cancha" | "arbitros" | "equipamiento" | "federacion" | "otro"
+export type CategoriaEgreso =
+  | "canchas"
+  | "nomina"
+  | "uniformes"
+  | "torneos"
+  | "administrativos"
+  | "polizas"
+  | "liga_federacion"
+  | "otros"
 
 export interface Egreso {
   id: Uuid
@@ -132,6 +140,9 @@ export interface Egreso {
   monto: number
   concepto: string
   categoria: CategoriaEgreso
+  categoria_otro: string | null
+  evento_id: Uuid | null
+  comprobante_id: Uuid | null
   creado_por: Uuid
   anulado_en: IsoDateTime | null
   created_at: IsoDateTime
@@ -150,6 +161,7 @@ export const TIPOS_BITACORA = [
   "regla_conciliacion_cambiada",
   "egreso_registrado",
   "egreso_anulado",
+  "cruce_registrado",
 ] as const
 export type TipoBitacora = (typeof TIPOS_BITACORA)[number]
 
