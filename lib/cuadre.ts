@@ -1,6 +1,21 @@
 // Cuadre de la conciliación mensual. Es la misma fórmula que la columna generada
 // `conciliaciones.diferencia` (migración 20260930014028_egresos.sql):
 //   diferencia = (saldo final − saldo inicial) − (ingresos aceptados − egresos no anulados)
+//
+// Un cruce de cuentas (jugador que trabaja para el club) no mueve el banco: su comprobante
+// (canal 'compensacion') y su egreso (con `comprobante_id`) se excluyen de ambos lados antes de
+// llamar `cuadreMes` — ver `lib/db/tesoreria.ts` (`totalAceptadoMes`) y `lib/db/egresos.ts`
+// (`egresosMes`), que son quienes filtran con los helpers de abajo.
+
+/** Canal de un comprobante de compensación (cruce de cuentas): no es un ingreso real. */
+export function esCompensacion(canal: string): boolean {
+  return canal === "compensacion"
+}
+
+/** Egreso enlazado a un cruce (`comprobante_id` no nulo): no es un egreso real, se anula con la compensación. */
+export function esEgresoDeCruce(comprobanteId: string | null): boolean {
+  return comprobanteId != null
+}
 
 export interface Cuadre {
   /** Comprobantes aceptados cuya fecha de pago cae en el mes. */

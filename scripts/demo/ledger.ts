@@ -259,6 +259,7 @@ export function aceptarComprobante(db: Db, ctx: Ctx, comprobanteId: string, line
   c.revisado_por = ctx.actor_id
   c.revisado_en = ctx.now
   for (const oid of porObligacion.keys()) recomputarEstado(db, oid)
+  if (c.canal === "compensacion") return // el cruce ya queda en la bitácora con 'cruce_registrado'
 
   log(db, ctx, {
     tipo: "comprobante_aceptado",
@@ -381,10 +382,18 @@ export function cancelarEvento(db: Db, ctx: Ctx, id: string) {
   })
 }
 
-// TODO(club): la fórmula de prorrateo no está definida en los docs. Default:
-// proporcional a los días activos del mes, con un piso (el "monto mínimo que
-// aplica independientemente de si entrenan"). Confirmar con la tesorera.
-export const PRORRATEO_PISO = 0.5
+// Tarifa fija de lesionado/inactivo (las configura el club en `tarifas_estado`); activo usa el monto
+// del evento de mensualidad y retirado es 0. El prorrateo es incremental sobre la tarifa de cada
+// estado, no un piso fijo — ver `cambiar_estado_miembro` en supabase/migrations.
+export const TARIFA_LESIONADO = 40_000
+export const TARIFA_INACTIVO = 60_000
+
+function tarifaDe(estado: EstadoJugador, montoEvento: number): number {
+  if (estado === "activo") return montoEvento
+  if (estado === "lesionado") return TARIFA_LESIONADO
+  if (estado === "inactivo") return TARIFA_INACTIVO
+  return 0 // retirado
+}
 
 export function cambiarEstadoJugador(db: Db, ctx: Ctx, usuarioId: string, estado: EstadoJugador) {
   const u = db.usuarios.find((u) => u.id === usuarioId && u.club_id === ctx.club_id)
@@ -394,36 +403,36 @@ export function cambiarEstadoJugador(db: Db, ctx: Ctx, usuarioId: string, estado
   u.estado = estado
 
   const prorrateos: string[] = []
-  if (anterior === "activo") {
-    const hoy = diaLocal(ctx.now)
-    const mes = hoy.slice(0, 7)
-    const dia = Number(hoy.slice(8, 10))
-    const [y, m] = mes.split("-").map(Number)
-    const diasMes = new Date(y, m, 0).getDate()
-    // TODO(club): identificar mensualidades por nombre es provisional; agregar un tipo de evento al modelo.
-    const mensualidades = obligacionesActivas(db, u.id).filter((o) => {
-      const e = eventoDe(db, o)
-      return e.nombre.toLowerCase().startsWith("mensualidad") && e.fecha_limite.startsWith(mes)
-    })
-    for (const o of mensualidades) {
-      const nuevo = Math.max(Math.round((o.monto * PRORRATEO_PISO) / 100) * 100, Math.round((o.monto * dia) / diasMes / 100) * 100)
-      if (nuevo >= o.monto) continue
-      const pagado = pagadoObligacion(db, o.id)
-      prorrateos.push(`${eventoDe(db, o).nombre}: ${formatCOP(o.monto)} → ${formatCOP(nuevo)}`)
-      o.monto = nuevo
-      if (pagado > nuevo) {
-        db.saldo_a_favor.push({
-          id: ctx.newId(),
-          usuario_id: u.id,
-          monto: pagado - nuevo,
-          origen_comprobante_id: null,
-          consumido: false,
-          consumido_en_obligacion_id: null,
-          created_at: ctx.now,
-        })
-      }
-      recomputarEstado(db, o.id)
+  const hoy = diaLocal(ctx.now)
+  const mes = hoy.slice(0, 7)
+  const dia = Number(hoy.slice(8, 10))
+  const [y, m] = mes.split("-").map(Number)
+  const diasMes = new Date(y, m, 0).getDate()
+  const r = (diasMes - dia + 1) / diasMes
+  // TODO(club): identificar mensualidades por nombre es provisional; agregar un tipo de evento al modelo.
+  const mensualidades = obligacionesActivas(db, u.id).filter((o) => {
+    const e = eventoDe(db, o)
+    return e.nombre.toLowerCase().startsWith("mensualidad") && e.fecha_limite.startsWith(mes)
+  })
+  for (const o of mensualidades) {
+    const e = eventoDe(db, o)
+    const nuevo = Math.max(Math.round((o.monto - tarifaDe(anterior, e.monto) * r + tarifaDe(estado, e.monto) * r) / 100) * 100, 0)
+    if (nuevo === o.monto) continue
+    const pagado = pagadoObligacion(db, o.id)
+    prorrateos.push(`${e.nombre}: ${formatCOP(o.monto)} → ${formatCOP(nuevo)}`)
+    o.monto = nuevo
+    if (pagado > nuevo) {
+      db.saldo_a_favor.push({
+        id: ctx.newId(),
+        usuario_id: u.id,
+        monto: pagado - nuevo,
+        origen_comprobante_id: null,
+        consumido: false,
+        consumido_en_obligacion_id: null,
+        created_at: ctx.now,
+      })
     }
+    recomputarEstado(db, o.id)
   }
   log(db, ctx, {
     tipo: "jugador_estado_cambiado",
@@ -558,33 +567,103 @@ export function reglasPorDefecto(ctx: Ctx): ReglaConciliacion[] {
 
 // ---------- Conciliación mensual ----------
 
-/** Suma de comprobantes aceptados cuya fecha de carga cae en el mes (≈ fecha de la transferencia). */
+/** Suma de comprobantes aceptados cuya fecha de carga cae en el mes (≈ fecha de la transferencia).
+ * Las compensaciones de un cruce no mueven el banco: se excluyen, igual que en la base. */
 export function totalAceptadoMes(db: Db, clubId: string, mes: string): number {
   const clubUsers = new Set(db.usuarios.filter((u) => u.club_id === clubId).map((u) => u.id))
   return db.comprobantes
-    .filter((c) => c.estado === "aceptado" && clubUsers.has(c.usuario_id) && diaLocal(c.fecha_carga).startsWith(mes.slice(0, 7)))
+    .filter(
+      (c) =>
+        c.estado === "aceptado" && c.canal !== "compensacion" && clubUsers.has(c.usuario_id) && diaLocal(c.fecha_carga).startsWith(mes.slice(0, 7)),
+    )
     .reduce((s, c) => s + c.monto_total, 0)
 }
 
-/** Suma de egresos no anulados cuya fecha cae en el mes (lo mismo que calcula la base). */
+/** Suma de egresos no anulados cuya fecha cae en el mes (lo mismo que calcula la base).
+ * El egreso de un cruce tampoco mueve el banco: se excluye, se anula con la compensación. */
 export function totalEgresosMes(db: Db, clubId: string, mes: string): number {
   return db.egresos
-    .filter((e) => e.club_id === clubId && !e.anulado_en && e.fecha.startsWith(mes.slice(0, 7)))
+    .filter((e) => e.club_id === clubId && !e.anulado_en && !e.comprobante_id && e.fecha.startsWith(mes.slice(0, 7)))
     .reduce((s, e) => s + e.monto, 0)
 }
 
 export function registrarEgreso(
   db: Db,
   ctx: Ctx,
-  input: { id: string; fecha: string; monto: number; concepto: string; categoria: CategoriaEgreso },
+  input: {
+    id: string
+    fecha: string
+    monto: number
+    concepto: string
+    categoria: CategoriaEgreso
+    categoria_otro?: string | null
+    evento_id?: string | null
+    comprobante_id?: string | null
+  },
 ) {
-  db.egresos.push({ ...input, club_id: ctx.club_id, creado_por: ctx.actor_id ?? "", anulado_en: null, created_at: ctx.now })
+  db.egresos.push({
+    ...input,
+    categoria_otro: input.categoria_otro ?? null,
+    evento_id: input.evento_id ?? null,
+    comprobante_id: input.comprobante_id ?? null,
+    club_id: ctx.club_id,
+    creado_por: ctx.actor_id ?? "",
+    anulado_en: null,
+    created_at: ctx.now,
+  })
+  if (input.comprobante_id) return // el cruce ya queda en la bitácora con 'cruce_registrado'
   log(db, ctx, {
     tipo: "egreso_registrado",
     objetivo_tipo: "egreso",
     objetivo_id: input.id,
     descripcion: `${nombreUsuario(db, ctx.actor_id)} registró un egreso de ${formatCOP(input.monto)}: ${input.concepto}`,
     metadata: { monto: input.monto, categoria: input.categoria, fecha: input.fecha },
+  })
+}
+
+/**
+ * Cruce de cuentas: un jugador que trabaja para el club (ej. entrena a cambio de un pago).
+ * Un comprobante de compensación (sin plata real) se acepta con la propuesta del motor —
+ * misma `aceptarComprobante` que usa la bandeja, nunca FIFO a mano— y un egreso de nómina
+ * enlazado a ese comprobante. Ambos se excluyen del cuadre: se anulan entre sí frente al banco.
+ */
+export function registrarCruce(
+  db: Db,
+  ctx: Ctx,
+  input: { comprobanteId: string; egresoId: string; usuario_id: string; monto: number; fecha: string; concepto: string },
+) {
+  db.comprobantes.push({
+    id: input.comprobanteId,
+    usuario_id: input.usuario_id,
+    archivo_url: null,
+    monto_total: input.monto,
+    canal: "compensacion",
+    fecha_carga: ctx.now,
+    estado: "pendiente",
+    motivo_rechazo: null,
+    revisado_por: null,
+    revisado_en: null,
+  })
+  const propuesta = proposeAllocation({
+    monto: input.monto,
+    pendientes: pendientesDe(db, input.usuario_id),
+    reglas: reglasDelClub(db, ctx.club_id),
+  })
+  aceptarComprobante(db, ctx, input.comprobanteId, propuesta.lineas)
+  registrarEgreso(db, ctx, {
+    id: input.egresoId,
+    fecha: input.fecha,
+    monto: input.monto,
+    concepto: input.concepto,
+    categoria: "nomina",
+    comprobante_id: input.comprobanteId,
+  })
+  log(db, ctx, {
+    tipo: "cruce_registrado",
+    objetivo_tipo: "comprobante",
+    objetivo_id: input.comprobanteId,
+    descripcion: `${nombreUsuario(db, ctx.actor_id)} registró un cruce de ${formatCOP(input.monto)} para ${nombreUsuario(db, input.usuario_id)}: ${input.concepto}`,
+    metadata: { monto: input.monto, usuario_id: input.usuario_id },
   })
 }
 

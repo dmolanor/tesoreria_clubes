@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { ActionForm } from "@/components/action-form"
 import { ActionButton } from "@/components/action-button"
 import { StatusDot } from "@/components/status-dot"
+import { CategoriaTag } from "@/components/categoria-tag"
 import { ajustarCuotasAction, cancelarAcuerdoAction } from "@/app/actions/acuerdos"
 import { estadoCuotas } from "@/lib/acuerdos"
 import type { AcuerdoVista } from "@/lib/db/acuerdos"
@@ -33,7 +34,7 @@ export function CuotasTabla({ pagado, cuotas }: { pagado: number; cuotas: Acuerd
   )
 }
 
-export function AcuerdoItem({ acuerdo }: { acuerdo: AcuerdoVista }) {
+export function AcuerdoItem({ acuerdo, evidenciaUrl }: { acuerdo: AcuerdoVista; evidenciaUrl?: string }) {
   const [open, setOpen] = useState(false)
   const [cuotas, setCuotas] = useState(() => acuerdo.cuotas.map((c) => ({ fecha: c.fecha, monto: String(c.monto) })))
   const total = acuerdo.cuotas.reduce((s, c) => s + c.monto, 0)
@@ -41,10 +42,11 @@ export function AcuerdoItem({ acuerdo }: { acuerdo: AcuerdoVista }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
+        <CardTitle className="flex flex-wrap items-center gap-2">
           <Link href={`/jugadores/${acuerdo.miembro_id}`} className="hover:underline">
             {acuerdo.miembro}
-          </Link>{" "}
+          </Link>
+          <CategoriaTag categoria={acuerdo.categoria} />
           <span className="text-[13px] font-medium text-muted-foreground">· {acuerdo.evento}</span>
         </CardTitle>
         <p className="text-[13px] text-muted-foreground">
@@ -55,6 +57,11 @@ export function AcuerdoItem({ acuerdo }: { acuerdo: AcuerdoVista }) {
       <CardContent className="space-y-3">
         <CuotasTabla pagado={acuerdo.pagado_deuda} cuotas={acuerdo.cuotas} />
         {acuerdo.notas ? <p className="text-[13px] text-muted-foreground">{acuerdo.notas}</p> : null}
+        {evidenciaUrl ? (
+          <a href={evidenciaUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-[13px] underline underline-offset-2">
+            Ver evidencia
+          </a>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <Dialog
             open={open}

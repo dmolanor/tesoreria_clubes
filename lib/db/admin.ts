@@ -1,6 +1,6 @@
 import "server-only"
 import type { Supabase } from "@/lib/supabase/server"
-import type { EventoCobro } from "./types"
+import type { EstadoMiembro, EventoCobro } from "./types"
 
 export interface Progreso {
   total: number
@@ -69,4 +69,11 @@ export async function categoriasDelClub(sb: Supabase, clubId: string): Promise<s
   const { data, error } = await sb.from("clubes").select("categorias").eq("id", clubId).single()
   if (error) throw error
   return data.categorias
+}
+
+/** Tarifa mensual de lesionado e inactivo (monto fijo en vez de la mensualidad completa). */
+export async function tarifasDelClub(sb: Supabase, clubId: string): Promise<Partial<Record<EstadoMiembro, number>>> {
+  const { data, error } = await sb.from("tarifas_estado").select("estado, monto_mensual").eq("club_id", clubId)
+  if (error) throw error
+  return Object.fromEntries((data ?? []).map((t) => [t.estado, Number(t.monto_mensual)]))
 }

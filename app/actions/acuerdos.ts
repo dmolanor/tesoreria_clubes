@@ -4,6 +4,16 @@ import { requireRole } from "@/lib/auth/session"
 import { check, runAction, DomainError, type ActionResult } from "@/lib/action-result"
 import { formatCOP, parseMonto } from "@/lib/format"
 
+// Mismos formatos y límite que el bucket `comprobantes`, donde vive también la evidencia.
+const TIPOS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "application/pdf": "pdf",
+}
+const MAX_BYTES = 8 * 1024 * 1024
+
 interface CuotaForm {
   numero: number
   fecha: string
@@ -46,10 +56,22 @@ export async function crearAcuerdoAction(_prev: ActionResult, formData: FormData
     )
     if (existente) throw new DomainError("Esta deuda ya tiene un acuerdo activo. Cancélalo antes de crear otro")
     const notas = String(formData.get("notas") ?? "").trim() || null
+
+    const archivo = formData.get("evidencia")
+    if (!(archivo instanceof File) || archivo.size === 0) {
+      throw new DomainError("Adjunta la captura del mensaje o documento donde el jugador aceptó las condiciones")
+    }
+    const ext = TIPOS[archivo.type]
+    if (!ext) throw new DomainError("La evidencia debe ser una imagen (JPG, PNG, WEBP, HEIC) o un PDF")
+    if (archivo.size > MAX_BYTES) throw new DomainError("La evidencia pesa más de 8 MB")
+    // Ruta que exige la política de Storage: {club}/acuerdos/{archivo}
+    const evidencia_path = `${s.club_id}/acuerdos/${crypto.randomUUID()}.${ext}`
+    check(await s.supabase.storage.from("comprobantes").upload(evidencia_path, archivo, { contentType: archivo.type }))
+
     const acuerdo = check(
       await s.supabase
         .from("acuerdos_pago")
-        .insert({ club_id: s.club_id, miembro_id: obl.miembro_id, obligacion_id, notas })
+        .insert({ club_id: s.club_id, miembro_id: obl.miembro_id, obligacion_id, notas, evidencia_path })
         .select("id")
         .single(),
     )
