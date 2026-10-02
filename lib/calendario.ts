@@ -59,7 +59,8 @@ export function agruparPorMes(
     if (e.tipo === "mensualidad") conMensualidad.add(idx)
     const { monto, pagado } = e.obligacion
     const saldo = Math.max(0, monto - pagado)
-    const estado: EstadoItemCalendario = saldo === 0 ? "pagado" : pagado > 0 ? "parcial" : e.fecha_limite < hoy ? "vencido" : "pendiente"
+    // Lo vencido con saldo es vencido aunque tenga abonos: es la deuda atrasada que la tesorería persigue.
+    const estado: EstadoItemCalendario = saldo === 0 ? "pagado" : e.fecha_limite < hoy ? "vencido" : pagado > 0 ? "parcial" : "pendiente"
     meses[idx].items.push({ dia: Number(e.fecha_limite.slice(8, 10)), nombre: e.nombre, monto: saldo === 0 ? monto : saldo, estado })
   }
   for (const t of tareas) {

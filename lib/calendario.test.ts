@@ -27,8 +27,8 @@ describe("agruparPorMes", () => {
   })
 
   it("marca parcial cuando 0 < pagado < monto, y muestra el saldo restante", () => {
-    const meses = agruparPorMes(2026, HOY, [evento({ nombre: "Uniforme", fecha_limite: "2026-03-05", obligacion: { monto: 90_000, pagado: 10_000 } })], null)
-    expect(meses[2].items).toEqual([{ dia: 5, nombre: "Uniforme", monto: 80_000, estado: "parcial" }, ESTIMADO])
+    const meses = agruparPorMes(2026, HOY, [evento({ nombre: "Uniforme", fecha_limite: "2026-09-05", obligacion: { monto: 90_000, pagado: 10_000 } })], null)
+    expect(meses[8].items).toEqual([{ dia: 5, nombre: "Uniforme", monto: 80_000, estado: "parcial" }, ESTIMADO])
   })
 
   it("marca vencido cuando pasó la fecha límite y no se pagó nada", () => {
@@ -36,9 +36,9 @@ describe("agruparPorMes", () => {
     expect(meses[4].items).toEqual([{ dia: 5, nombre: "Cobro vencido", monto: 120_000, estado: "vencido" }, ESTIMADO])
   })
 
-  it("un pago parcial no cuenta como vencido aunque ya haya pasado la fecha", () => {
+  it("un abono no esconde la deuda vencida: con fecha pasada y saldo, queda vencido", () => {
     const meses = agruparPorMes(2026, HOY, [evento({ fecha_limite: "2026-01-05", obligacion: { monto: 100_000, pagado: 30_000 } })], null)
-    expect(meses[0].items).toEqual([{ dia: 5, nombre: "Cobro", monto: 70_000, estado: "parcial" }, ESTIMADO])
+    expect(meses[0].items).toEqual([{ dia: 5, nombre: "Cobro", monto: 70_000, estado: "vencido" }, ESTIMADO])
   })
 
   it("agrega mensualidad estimada en meses sin mensualidad real, y ordena dia null al final", () => {
