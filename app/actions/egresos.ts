@@ -16,16 +16,19 @@ const TIPOS: Record<string, string> = {
 }
 const MAX_BYTES = 8 * 1024 * 1024
 
-/** Tesorero: registra un egreso del club, con soporte opcional (factura o recibo). */
+/** Tesorería o administración: registra un egreso del club, con soporte opcional. */
 export async function registrarEgresoAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   return runAction(async () => {
-    const s = await requireRole("tesorero")
+    const s = await requireRole("tesorero", "administrativo")
     const monto = parseMonto(formData.get("monto"))
     if (monto <= 0) throw new DomainError("Escribe el monto que salió de la cuenta")
     const concepto = String(formData.get("concepto") ?? "").trim()
     if (!concepto) throw new DomainError("Escribe en qué se gastó (ej. Arriendo cancha sábados)")
-    const categoria = String(formData.get("categoria") ?? "otro") as CategoriaEgreso
+    const categoria = String(formData.get("categoria") ?? "otros") as CategoriaEgreso
     if (!Constants.public.Enums.categoria_egreso.includes(categoria)) throw new DomainError("Elige una categoría de la lista")
+    const categoria_otro = String(formData.get("categoria_otro") ?? "").trim() || null
+    if (categoria === "otros" && !categoria_otro) throw new DomainError("Escribe qué tipo de gasto es")
+    const evento_id = String(formData.get("evento_id") ?? "").trim() || null
     const fecha = String(formData.get("fecha") || hoyISO())
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || fecha > hoyISO()) throw new DomainError("La fecha del egreso no puede ser posterior a hoy")
 
@@ -40,15 +43,26 @@ export async function registrarEgresoAction(_prev: ActionResult, formData: FormD
       check(await s.supabase.storage.from("comprobantes").upload(soporte_path, archivo, { contentType: archivo.type }))
     }
 
-    check(await s.supabase.from("egresos").insert({ club_id: s.club_id, fecha, monto, concepto, categoria, soporte_path }))
+    check(
+      await s.supabase.from("egresos").insert({
+        club_id: s.club_id,
+        fecha,
+        monto,
+        concepto,
+        categoria,
+        categoria_otro: categoria === "otros" ? categoria_otro : null,
+        evento_id,
+        soporte_path,
+      }),
+    )
     return `Egreso de ${formatCOP(monto)} registrado en ${formatMes(fecha)}`
   })
 }
 
-/** Tesorero: anula un egreso registrado por error. No se borra: deja de contar en el cuadre. */
+/** Tesorería o administración: anula un egreso registrado por error. No se borra: deja de contar en el cuadre. */
 export async function anularEgresoAction(egresoId: string): Promise<ActionResult> {
   return runAction(async () => {
-    const s = await requireRole("tesorero")
+    const s = await requireRole("tesorero", "administrativo")
     const filas = check(
       await s.supabase
         .from("egresos")

@@ -2,6 +2,7 @@ import { pageSession } from "@/lib/auth/page"
 import { acuerdosDelClub } from "@/lib/db/acuerdos"
 import { opcionesJugadores } from "@/lib/db/admin"
 import { pendientesPorMiembro } from "@/lib/db/tesoreria"
+import { urlsFirmadas } from "@/lib/db/cuenta"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AcuerdoItem } from "@/components/tesorero/acuerdo-item"
 import { NuevoAcuerdo, type JugadorDeuda } from "@/components/tesorero/nuevo-acuerdo"
@@ -24,6 +25,7 @@ export default async function AcuerdosPage() {
   })
   const activos = acuerdos.filter((a) => a.estado === "activo")
   const cancelados = acuerdos.filter((a) => a.estado !== "activo")
+  const urls = await urlsFirmadas(sb, activos.map((a) => a.evidencia_path))
 
   return (
     <div className="space-y-6">
@@ -41,7 +43,7 @@ export default async function AcuerdosPage() {
           </CardContent>
         </Card>
       ) : (
-        activos.map((a) => <AcuerdoItem key={a.id} acuerdo={a} />)
+        activos.map((a) => <AcuerdoItem key={a.id} acuerdo={a} evidenciaUrl={urls.get(a.evidencia_path)} />)
       )}
 
       {cancelados.length ? (

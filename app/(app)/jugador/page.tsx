@@ -1,6 +1,7 @@
 import { pageSession } from "@/lib/auth/page"
 import { comprobantesDe, estadoCuenta, obligacionesDe, urlsFirmadas } from "@/lib/db/cuenta"
 import { acuerdosDeMiembro } from "@/lib/db/acuerdos"
+import { tareasDeMiembro } from "@/lib/db/tareas"
 import { cobrosDelAño } from "@/lib/db/calendario"
 import { formatCOP, formatFecha, hoyISO, relativoVencimiento } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StatusDot } from "@/components/status-dot"
 import { SubirComprobante } from "@/components/jugador/subir-comprobante"
 import { AcuerdosPago } from "@/components/jugador/acuerdos-pago"
+import { TareasJugador } from "@/components/jugador/tareas-jugador"
 import { CalendarioPagos } from "@/components/jugador/calendario-pagos"
 import { cn } from "@/lib/utils"
 
@@ -16,11 +18,12 @@ export default async function JugadorHome() {
   const sb = s.supabase
   const hoy = hoyISO()
   const año = Number(hoy.slice(0, 4))
-  const [cuenta, obligaciones, comprobantes, acuerdos, calendario] = await Promise.all([
+  const [cuenta, obligaciones, comprobantes, acuerdos, tareas, calendario] = await Promise.all([
     estadoCuenta(sb, s.club_id, s.usuario.id),
     obligacionesDe(sb, s.usuario.id),
     comprobantesDe(sb, { miembroId: s.usuario.id }),
     acuerdosDeMiembro(sb, s.usuario.id),
+    tareasDeMiembro(sb, s.usuario.id),
     cobrosDelAño(sb, s.club_id, s.usuario.id, año),
   ])
   const urls = await urlsFirmadas(sb, comprobantes.map((c) => c.archivo_path))
@@ -78,6 +81,8 @@ export default async function JugadorHome() {
 
       <AcuerdosPago acuerdos={acuerdos} />
 
+      <TareasJugador tareas={tareas} />
+
       <CalendarioPagos año={año} meses={calendario.meses} hoy={hoy} />
 
       <Card>
@@ -131,7 +136,7 @@ export default async function JugadorHome() {
                       <span className="text-[13px] text-muted-foreground">
                         {formatFecha(c.fecha_pago)} ·{" "}
                         <span className={cn(c.estado === "rechazado" && "text-warn", c.estado === "aceptado" && "text-raza")}>
-                          {c.estado === "pendiente" ? "En revisión" : c.estado === "aceptado" ? "Aceptado" : "Rechazado"}
+                          {c.esCruce ? "Cruce" : c.estado === "pendiente" ? "En revisión" : c.estado === "aceptado" ? "Aceptado" : "Rechazado"}
                         </span>
                         {href ? (
                           <>

@@ -1,3 +1,4 @@
+import { Check } from "lucide-react"
 import { StatusDot } from "@/components/status-dot"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { EstadoItemCalendario, MesCalendario } from "@/lib/calendario"
@@ -18,19 +19,40 @@ function Punto({ estado, className }: { estado: EstadoItemCalendario; className?
       </span>
     )
   }
-  return <StatusDot estado={estado === "pagado" ? "al_dia" : "pendiente"} className={cn("shrink-0", className)} />
+  if (estado === "parcial") {
+    return (
+      <span className={cn("inline-flex shrink-0 items-center", className)}>
+        <span aria-hidden className="inline-block size-2.5 rounded-full border-[1.5px] border-ink" style={{ background: "linear-gradient(90deg, var(--raza) 50%, transparent 50%)" }} />
+        <span className="sr-only">Parcial</span>
+      </span>
+    )
+  }
+  return <StatusDot estado={estado === "pagado" ? "al_dia" : estado === "vencido" ? "mora" : "pendiente"} className={cn("shrink-0", className)} />
 }
 
-/** Calendario anual de cobros, solo lectura. Sin interactividad. */
+/** Marcador de tarea: distinto al de los cobros (siempre lleva un ícono de check). */
+function MarcadorTarea({ hecha, className }: { hecha: boolean; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn("inline-flex size-2.5 shrink-0 items-center justify-center rounded-full border-[1.5px]", hecha ? "border-raza bg-raza" : "border-ink border-dashed bg-transparent", className)}
+    >
+      <Check className={cn("size-2", hecha ? "text-white" : "text-ink")} strokeWidth={3} />
+    </span>
+  )
+}
+
+/** Calendario anual de cobros y tareas, solo lectura. Sin interactividad. */
 export function CalendarioPagos({ año, meses, hoy = hoyISO() }: { año: number; meses: MesCalendario[]; hoy?: string }) {
   const mesHoy = hoy.slice(0, 7)
+  const hayAlgo = meses.some((m) => m.items.length > 0 || m.tareas.length > 0)
   return (
     <Card>
       <CardHeader>
         <CardTitle>Calendario de pagos {año}</CardTitle>
       </CardHeader>
       <CardContent>
-        {meses.length === 0 ? (
+        {!hayAlgo ? (
           <p className="text-[14px] text-muted-foreground">Sin cobros este año.</p>
         ) : (
           <>
@@ -56,6 +78,18 @@ export function CalendarioPagos({ año, meses, hoy = hoyISO() }: { año: number;
                         </li>
                       ))}
                     </ul>
+                    {m.tareas.length > 0 ? (
+                      <ul className="mt-1.5 space-y-1 border-t border-border pt-1.5">
+                        {m.tareas.map((t, i) => (
+                          <li key={i} className="flex items-start gap-1.5">
+                            <MarcadorTarea hecha={t.hecha} className="mt-[3px]" />
+                            <p className={cn("min-w-0 flex-1 truncate text-[12px] leading-snug", t.hecha && "text-faint line-through")}>
+                              {t.dia} · {t.nombre}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                 )
               })}
@@ -66,12 +100,24 @@ export function CalendarioPagos({ año, meses, hoy = hoyISO() }: { año: number;
                 Pagado
               </span>
               <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden="true"><Punto estado="vencido" /></span>
+                Vencido
+              </span>
+              <span className="inline-flex items-center gap-1.5">
                 <span aria-hidden="true"><Punto estado="pendiente" /></span>
                 Pendiente
               </span>
               <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden="true"><Punto estado="parcial" /></span>
+                Parcial
+              </span>
+              <span className="inline-flex items-center gap-1.5">
                 <span aria-hidden="true"><Punto estado="estimado" /></span>
                 Estimado
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden="true"><MarcadorTarea hecha={false} /></span>
+                Tarea
               </span>
             </p>
           </>

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -8,8 +9,15 @@ import { ActionForm } from "@/components/action-form"
 import { registrarEgresoAction } from "@/app/actions/egresos"
 import { CATEGORIA_EGRESO_LABEL, type CategoriaEgreso } from "@/lib/db/types"
 
-/** Registro corto de un egreso dentro de la conciliación; la fecha se limita al mes que se está cuadrando. */
-export function EgresoForm({ min, max }: { min: string; max: string }) {
+export interface EventoOpcion {
+  id: string
+  nombre: string
+}
+
+/** Registro de un egreso del club, con soporte opcional y el cobro que sustenta (si aplica).
+ * `min`/`max` limitan la fecha al mes que se está viendo (nunca una fecha futura). */
+export function EgresoForm({ min, max, eventos }: { min: string; max: string; eventos: EventoOpcion[] }) {
+  const [categoria, setCategoria] = useState<CategoriaEgreso>("canchas")
   return (
     <ActionForm action={registrarEgresoAction} resetOnSuccess className="space-y-3" key={min}>
       {(pending) => (
@@ -31,10 +39,34 @@ export function EgresoForm({ min, max }: { min: string; max: string }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="egreso_categoria">Categoría</Label>
-              <NativeSelect id="egreso_categoria" name="categoria" defaultValue="arriendo_cancha">
+              <NativeSelect
+                id="egreso_categoria"
+                name="categoria"
+                value={categoria}
+                onChange={(e) => setCategoria(e.target.value as CategoriaEgreso)}
+              >
                 {(Object.keys(CATEGORIA_EGRESO_LABEL) as CategoriaEgreso[]).map((c) => (
                   <option key={c} value={c}>
                     {CATEGORIA_EGRESO_LABEL[c]}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+            {categoria === "otros" ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="egreso_categoria_otro">¿Qué tipo de gasto?</Label>
+                <Input id="egreso_categoria_otro" name="categoria_otro" required maxLength={100} placeholder="Transporte del equipo" autoComplete="off" />
+              </div>
+            ) : null}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="egreso_evento_id">¿Qué cobro sustenta? (opcional)</Label>
+              <NativeSelect id="egreso_evento_id" name="evento_id" defaultValue="">
+                <option value="">Ninguno</option>
+                {eventos.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.nombre}
                   </option>
                 ))}
               </NativeSelect>

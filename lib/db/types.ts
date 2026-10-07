@@ -19,6 +19,10 @@ export type AcuerdoPago = Tables<"acuerdos_pago">
 export type CuotaAcuerdo = Tables<"cuotas_acuerdo">
 export type TipoRecordatorio = Enums<"tipo_recordatorio">
 export type ReglaRecordatorio = Tables<"reglas_recordatorio">
+export type TarifaEstado = Tables<"tarifas_estado">
+export type EstadoTarea = Enums<"estado_tarea">
+export type Tarea = Tables<"tareas">
+export type TareaMiembro = Tables<"tareas_miembros">
 
 export type EstadoCuenta = "al_dia" | "pendiente" | "mora"
 
@@ -35,6 +39,11 @@ export const TIPOS_BITACORA: readonly TipoBitacora[] = [
   "egreso_registrado",
   "egreso_anulado",
   "acuerdo_pago_cambiado",
+  "tarifa_cambiada",
+  "obligacion_condonada",
+  "tarea_creada",
+  "tarea_cancelada",
+  "cruce_registrado",
 ]
 
 export const TIPO_COBRO_LABEL: Record<TipoCobro, string> = {
@@ -46,9 +55,12 @@ export const TIPO_COBRO_LABEL: Record<TipoCobro, string> = {
 }
 
 export const CATEGORIA_EGRESO_LABEL: Record<CategoriaEgreso, string> = {
-  arriendo_cancha: "Arriendo de cancha",
-  arbitros: "Árbitros",
-  equipamiento: "Equipamiento",
-  federacion: "Federación o liga",
-  otro: "Otro",
+  canchas: "Canchas",
+  nomina: "Nómina",
+  uniformes: "Uniformes",
+  torneos: "Torneos",
+  administrativos: "Gastos administrativos",
+  polizas: "Pólizas",
+  liga_federacion: "Liga/Federación",
+  otros: "Otros",
 }

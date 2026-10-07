@@ -150,6 +150,11 @@ export function NuevoAcuerdo({ jugadores }: { jugadores: JugadorDeuda[] }) {
                 <Label htmlFor="notas">Notas (opcional)</Label>
                 <Textarea id="notas" name="notas" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Lo que se pactó con el jugador" />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="evidencia">Evidencia del acuerdo</Label>
+                <Input id="evidencia" name="evidencia" type="file" required accept="image/*,application/pdf" />
+                <p className="text-[13px] text-muted-foreground">Captura del mensaje o documento donde el jugador acepta las condiciones.</p>
+              </div>
               <Button type="submit" disabled={pending || !obligacionId} className="w-full">
                 {pending ? "Registrando…" : "Registrar acuerdo"}
               </Button>

@@ -11,6 +11,7 @@ import {
   pendientesDe,
   propuestaPara,
   rechazarComprobante,
+  registrarCruce,
   registrarEgreso,
   reglasPorDefecto,
   subirComprobante,
@@ -72,6 +73,10 @@ export function buildSeed(): Db {
     reglas_conciliacion: [],
     conciliaciones: [],
     egresos: [],
+    tarifas_estado: [
+      { club_id: CLUB_ID, estado: "lesionado", monto_mensual: 40_000, updated_at: "2026-06-15T15:00:00.000Z" },
+      { club_id: CLUB_ID, estado: "inactivo", monto_mensual: 60_000, updated_at: "2026-06-15T15:00:00.000Z" },
+    ],
     bitacora: [],
   }
   const ctx = (fecha: string, actor: string | null, hora = "15:00"): Ctx => ({
@@ -252,14 +257,14 @@ export function buildSeed(): Db {
     newId: () => `00000000-0000-4000-8000-0000000eb${(++egresoN).toString(16).padStart(3, "0")}`,
   })
   const egresos = [
-    ["2026-07-04", 1_200_000, "Arriendo cancha julio (sábados)", "arriendo_cancha"],
-    ["2026-07-10", 600_000, "Inscripción liga 2026", "federacion"],
-    ["2026-08-02", 1_200_000, "Arriendo cancha agosto (sábados)", "arriendo_cancha"],
-    ["2026-08-14", 450_000, "Discos de juego x10", "equipamiento"],
-    ["2026-08-23", 300_000, "Observadores Torneo Regional", "arbitros"],
-    ["2026-09-05", 1_200_000, "Arriendo cancha septiembre (sábados)", "arriendo_cancha"],
-    ["2026-09-06", 1_200_000, "Arriendo cancha septiembre (sábados)", "arriendo_cancha"],
-    ["2026-09-20", 350_000, "Observadores Torneo Nacional", "arbitros"],
+    ["2026-07-04", 1_200_000, "Arriendo cancha julio (sábados)", "canchas"],
+    ["2026-07-10", 600_000, "Inscripción liga 2026", "liga_federacion"],
+    ["2026-08-02", 1_200_000, "Arriendo cancha agosto (sábados)", "canchas"],
+    ["2026-08-14", 450_000, "Discos de juego x10", "uniformes"],
+    ["2026-08-23", 300_000, "Observadores Torneo Regional", "torneos"],
+    ["2026-09-05", 1_200_000, "Arriendo cancha septiembre (sábados)", "canchas"],
+    ["2026-09-06", 1_200_000, "Arriendo cancha septiembre (sábados)", "canchas"],
+    ["2026-09-20", 350_000, "Observadores Torneo Nacional", "torneos"],
   ] as const
   egresos.forEach(([fecha, monto, concepto, categoria], i) => {
     const id = `00000000-0000-4000-8000-0000000e${(i + 1).toString(16).padStart(4, "0")}`
@@ -267,6 +272,27 @@ export function buildSeed(): Db {
   })
   // El segundo arriendo de septiembre quedó duplicado y la tesorera lo anuló.
   anularEgreso(db, ctxEgreso("2026-09-06", "17:30"), "00000000-0000-4000-8000-0000000e0007")
+  // Un egreso de categoría "Otros" con el texto libre que exige esa categoría.
+  registrarEgreso(db, ctxEgreso("2026-09-12", "16:30"), {
+    id: "00000000-0000-4000-8000-0000000e0009",
+    fecha: "2026-09-12",
+    monto: 180_000,
+    concepto: "Transporte al Torneo Nacional",
+    categoria: "otros",
+    categoria_otro: "Bus del equipo",
+  })
+  // Cruce de cuentas: un jugador que entrena a los Junior se le descuenta de su mensualidad.
+  const u7 = buscar((u) => pend(u).length >= 1)
+  if (u7) {
+    registrarCruce(db, ctxEgreso("2026-09-29", "18:00"), {
+      comprobanteId: "00000000-0000-4000-8000-0000000e0101",
+      egresoId: "00000000-0000-4000-8000-0000000e0102",
+      usuario_id: u7.id,
+      monto: 60_000,
+      fecha: "2026-09-29",
+      concepto: "Entrenamiento Junior septiembre",
+    })
+  }
 
   // ---- Conciliaciones cerradas (julio y agosto cuadradas: ingresos − egresos = movimiento del banco) ----
   let saldo = 2_850_000
